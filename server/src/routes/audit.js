@@ -1,0 +1,1 @@
+import{Router}from"express";import AuditLog from"../models/AuditLog.js";import{auth,roles}from"../middleware/auth.js";const router=Router();router.use(auth);router.get("/",roles("charge_nurse","admin"),async(req,res)=>res.json(await AuditLog.find().sort({createdAt:-1}).limit(300)));export default router;
