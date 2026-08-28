@@ -3,3 +3,9 @@ node_modules/
 dist/
 .DS_Store
 *.log
+
+# Local ML data and generated model artifacts
+train.csv
+ml/artifacts/
+__pycache__/
+*.py[cod]
