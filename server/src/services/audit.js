@@ -1,3 +1,6 @@
-import crypto from "crypto";
-import AuditLog from "../models/AuditLog.js";
-export async function writeAudit({event,actor="system",actorRole="system",patientId,payload={}}){const previous=await AuditLog.findOne().sort({createdAt:-1}).lean();const previousHash=previous?.hash||"GENESIS";const body=JSON.stringify({event,actor,actorRole,patientId,payload,previousHash});const hash=crypto.createHash("sha256").update(body).digest("hex");return AuditLog.create({event,actor,actorRole,patientId,payload,previousHash,hash})}
+import crypto from 'node:crypto';
+import AuditLog from '../models/AuditLog.js';
+const canonical=v=>v===null||typeof v!=='object'?JSON.stringify(v):Array.isArray(v)?`[${v.map(canonical).join(',')}]`:`{${Object.keys(v).sort().map(k=>`${JSON.stringify(k)}:${canonical(v[k])}`).join(',')}}`;
+const hash=e=>crypto.createHash('sha256').update(canonical({eventType:e.eventType,patientId:e.patientId??null,actorId:e.actorId??'SYSTEM',timestamp:new Date(e.timestamp).toISOString(),payload:e.payload??{},previousHash:e.previousHash??'GENESIS'})).digest('hex');
+export async function appendAudit({eventType,patientId=null,actorId='SYSTEM',actorRole='SYSTEM',payload={}}){const latest=await AuditLog.findOne().sort({timestamp:-1,_id:-1}).lean();const base={eventId:crypto.randomUUID(),eventType,patientId,actorId,actorRole,timestamp:new Date(),payload,previousHash:latest?.hash||'GENESIS'};return AuditLog.create({...base,hash:hash(base)});}
+export async function verifyAuditChain(){const events=await AuditLog.find().sort({timestamp:1,_id:1}).lean();let previous='GENESIS';for(let i=0;i<events.length;i++){const e=events[i];if(e.previousHash!==previous||e.hash!==hash({...e,previousHash}))return{valid:false,firstBrokenEvent:i,eventId:e.eventId,reason:'Hash or previousHash mismatch'};previous=e.hash;}return{valid:true,events:events.length,firstBrokenEvent:null};}
