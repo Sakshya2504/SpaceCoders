@@ -53,7 +53,7 @@ The reference `train.csv` contains 40 columns. Four columns are intentionally ex
 - `ed_los_hours` — downstream outcome that can leak post-triage information.
 - `triage_acuity` — target.
 
-The remaining model input columns are preserved in the intake `modelFeatures` object using the same dataset field names. Time fields and derived metrics are computed where appropriate instead of asking the operator to duplicate calculations.
+The remaining columns are represented by the intake `modelFeatures` object using the same dataset field names. Time fields and arithmetic features are calculated where appropriate rather than asking the operator to duplicate calculations.
 
 ## Age-aware logic
 
@@ -72,7 +72,7 @@ Confidence is deterministic and combines data completeness, signal consistency, 
 
 ## Queue monitoring
 
-Waiting patients have a `safeMaxWaitMinutes`, reassessment timestamps and queue status. The queue monitor re-evaluates waiting patients and can tighten the cadence during surge mode. The architecture specification calls for automatic re-scoring when a safe wait threshold or deterioration threshold is crossed. The current prototype exposes the same flow through the queue service and manual reassessment controls. fileciteturn299file0
+Waiting patients have a `safeMaxWaitMinutes`, reassessment timestamps and queue status. The queue monitor re-evaluates waiting patients and can tighten the cadence during surge mode.
 
 ## Audit chain
 
@@ -80,8 +80,8 @@ Clinical decision events are appended to a SHA-256 linked chain. The record cont
 
 ## Production XGBoost boundary
 
-The repository contains a reproducible XGBoost training pipeline under `ml/`. The MERN runtime currently uses the local prototype scorer for reliability and easy setup. The service boundary is intentionally stable so an internal XGBoost/SHAP inference service can replace the scorer later without changing the React workflow. The original architecture requires independent red-flag detection, explainability and human acknowledgement around the model output. fileciteturn299file4
+The repository contains a reproducible XGBoost training pipeline under `ml/`. The MERN runtime currently uses the local prototype scorer for reliability and easy setup. The service boundary is intentionally stable so an internal XGBoost/SHAP inference service can replace the scorer later without changing the React workflow.
 
 ## Safety and governance
 
-The user interface presents recommendations, confidence and reasoning and always preserves clinician accept/override authority. Overrides require a structured reason and are audited. The reference architecture explicitly treats override authority, access control and decision logging as first-class requirements. fileciteturn299file3
+The interface presents recommendations, confidence and reasoning and always preserves clinician accept/override authority. Overrides require a structured reason and are audited. Production deployment would require clinical validation, secure handling of sensitive data, model monitoring and formal governance.
