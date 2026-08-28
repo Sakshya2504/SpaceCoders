@@ -1,29 +1,175 @@
 # PatientTriage.ai
 
-PatientTriage.ai is a safety-first emergency-department decision-support platform. It brings patient context, triage acuity, high-sensitivity red-flag detection, confidence, queue monitoring and clinician review into one workspace.
+PatientTriage.ai is a safety-first emergency-department decision-support platform built as a full-stack MERN application with an optional XGBoost inference service.
 
-The current application uses synthetic data. AI recommendations are advisory; the clinician remains responsible for the final triage decision.
+The product is designed around one principle: **surface acuity, risk and uncertainty early while keeping the clinician in control of the final decision.**
 
-## Stack
+> **Prototype notice:** the project uses synthetic data. The model, thresholds and decision logic are not clinically validated and must not be used for real patient care.
 
-- React + Vite
-- Node.js + Express
-- MongoDB + Mongoose
-- JWT + bcryptjs
-- Socket.IO for realtime events
-- XGBoost + scikit-learn for the trained acuity model
-- FastAPI + Uvicorn for local XGBoost inference
+## 1. What the application does
 
-## Local setup
+The application provides a shared workspace for emergency-department intake, triage review, queue monitoring and auditability.
 
-### 1. Install the JavaScript application
+### Main workflow
+
+```text
+Sign in
+   ↓
+Patient Intake
+   ↓
+Build dataset-aligned feature vector
+   ↓
+XGBoost inference (when available)
+   +
+Independent red-flag checks
+   +
+Confidence / completeness checks
+   ↓
+ESI recommendation + explanation
+   ↓
+Clinician accepts or overrides
+   ↓
+Patient enters / remains in live queue
+   ↓
+Periodic reassessment
+   ↓
+Alerts + deterioration handling
+   ↓
+SHA-256 linked audit trail
+```
+
+The Node.js service owns authorization, patient workflow, safety rules, queue logic and audit records. The optional Python service owns only XGBoost inference. This keeps the ML boundary small and allows the application to fail open when the model service is unavailable.
+
+## 2. Technology stack
+
+### Frontend
+
+- React
+- Vite
+- React Router
+- Axios
+- Socket.IO client
+- Lucide React icons
+- Responsive CSS for desktop, tablet and mobile layouts
+
+### Backend
+
+- Node.js
+- Express
+- MongoDB
+- Mongoose
+- JWT authentication
+- bcryptjs password hashing
+- Socket.IO
+- express-rate-limit
+- Morgan request logging
+
+### Machine learning
+
+- Python
+- pandas
+- scikit-learn preprocessing
+- XGBoost
+- joblib
+- FastAPI
+- Uvicorn
+
+## 3. Repository structure
+
+```text
+SpaceCoders/
+│
+├── client/
+│   ├── public/
+│   ├── src/
+│   │   ├── components/
+│   │   │   ├── AlertCenter.jsx
+│   │   │   ├── Badge.jsx
+│   │   │   ├── Modal.jsx
+│   │   │   ├── Sidebar.jsx
+│   │   │   └── TopBar.jsx
+│   │   ├── pages/
+│   │   │   ├── Audit.jsx
+│   │   │   ├── Dashboard.jsx
+│   │   │   ├── Intake.jsx
+│   │   │   ├── Login.jsx
+│   │   │   ├── PatientDetail.jsx
+│   │   │   ├── Queue.jsx
+│   │   │   └── Signup.jsx
+│   │   ├── App.jsx
+│   │   ├── api.js
+│   │   ├── index.css
+│   │   ├── main.jsx
+│   │   ├── responsive.css
+│   │   └── socket.js
+│   ├── index.html
+│   ├── package.json
+│   └── vite.config.js
+│
+├── server/
+│   ├── src/
+│   │   ├── config/
+│   │   ├── middleware/
+│   │   ├── models/
+│   │   ├── routes/
+│   │   ├── services/
+│   │   ├── utils/
+│   │   ├── seed.js
+│   │   └── server.js
+│   ├── .env.example
+│   └── package.json
+│
+├── ml/
+│   ├── train_xgboost.py
+│   ├── inference_service.py
+│   ├── requirements.txt
+│   ├── requirements-inference.txt
+│   ├── README.md
+│   └── README_INFERENCE.md
+│
+├── docs/
+│   ├── ARCHITECTURE.md
+│   ├── API.md
+│   ├── DEMO_SCRIPT.md
+│   ├── SECURITY.md
+│   ├── TESTING.md
+│   ├── SETUP.md
+│   └── ROUND2_CHECKLIST.md
+│
+└── package.json
+```
+
+## 4. Local setup
+
+### Prerequisites
+
+Install the following before starting:
+
+- Node.js 20+ recommended
+- npm
+- MongoDB running locally on port `27017`
+- Python 3.10+ recommended for the XGBoost service
+
+### Install JavaScript dependencies
+
+From the repository root:
 
 ```bash
 npm install
 npm run install:all
 ```
 
-Create `server/.env` from `server/.env.example` and make sure these values are present:
+### Configure the backend
+
+Copy the example environment file:
+
+```powershell
+cd server
+copy .env.example .env
+cd ..
+```
+
+Use these local values:
 
 ```env
 PORT=3000
@@ -35,126 +181,121 @@ MANUAL_MODE=false
 ML_INFERENCE_URL=http://127.0.0.1:8000
 ```
 
-### 2. Prepare the XGBoost model
-
-Place the supplied reference `train.csv` in the repository root. The dataset is intentionally ignored by Git because it is local training data.
-
-```bash
-npm run ml:install
-npm run ml:train
-```
-
-This creates the local artifact:
-
-```text
-ml/artifacts/triage_xgb_pipeline.joblib
-```
-
-### 3. Start the application
-
-The easiest full-stack option is:
-
-```bash
-npm run dev:full
-```
-
-That starts:
-
-```text
-XGBoost inference → http://127.0.0.1:8000
-Backend API       → http://localhost:3000
-Frontend          → http://localhost:5173
-```
-
-For debugging, the services can also be started separately:
-
-```bash
-npm run ml:serve
-npm run server
-npm run client
-```
-
-### 4. Seed synthetic demo data
-
-With MongoDB running:
+### Seed the demo database
 
 ```bash
 npm run seed
 ```
 
-The seed is compatible with both XGBoost inference and the deterministic fallback.
+The seed command clears the demo collections and creates synthetic users and patients for a repeatable local demonstration.
 
-## Demo accounts
+### Start the application
+
+For the MERN application only:
+
+```bash
+npm run dev
+```
+
+This starts:
+
+```text
+Frontend → http://localhost:5173
+Backend  → http://localhost:3000
+```
+
+For the complete application including XGBoost inference, follow `docs/SETUP.md` for the Python service and then run the Node application.
+
+## 5. Demo accounts
+
+All seeded accounts use the same demo password:
+
+```text
+Password: demo123
+```
+
+Available accounts:
 
 ```text
 Charge nurse
 charge@patienttriage.demo
- demo123
 
 Triage nurse
 nurse@patienttriage.demo
- demo123
 
 Clinical admin
 admin@patienttriage.demo
- demo123
+
+System admin
+system@patienttriage.demo
 ```
 
-These accounts and seeded patients are synthetic demo data.
+Signup is also available from `/signup`; new accounts are assigned the least-privileged `triage_nurse` role by the server.
 
-## Core workflow
+## 6. Machine-learning dataset contract
 
-1. Sign in.
-2. Open **Command Centre** for the operational overview.
-3. Use **Patient Intake** to capture the dataset-aligned feature set.
-4. The backend builds the canonical model feature vector.
-5. XGBoost returns the predicted ESI and class probabilities.
-6. Independent safety detectors can override the model and escalate immediately.
-7. The UI shows confidence, evidence and the model source.
-8. A clinician can accept or override the recommendation.
-9. **Live Queue** reuses the same scoring contract during reassessment.
-10. **Audit Trail** records the decision flow and verifies the SHA-256 chain.
+The reference `train.csv` contains **80,000 rows and 40 columns**. The target column is `triage_acuity` with classes `1` through `5`.
 
-## Dataset alignment
+The application intentionally excludes these four columns from inference:
 
-The reference dataset contains 80,000 rows and 40 columns. The target is `triage_acuity` with values 1–5.
+| Column | Reason |
+|---|---|
+| `patient_id` | Identifier, not a clinical predictor |
+| `disposition` | Downstream outcome after triage |
+| `ed_los_hours` | Downstream outcome that can leak post-triage information |
+| `triage_acuity` | Prediction target |
 
-The training pipeline excludes `patient_id`, `disposition`, `ed_los_hours` and `triage_acuity` from model inputs. The intake page creates the corresponding 36 model features using the same training column names. Derived values such as age group, arrival context, BMI, mean arterial pressure, pulse pressure and shock index are calculated before inference.
+The remaining 36 fields form the model input contract.
 
-The Python inference service validates that all expected feature columns are present and reuses the persisted scikit-learn preprocessing pipeline used during training, so training-time transformations remain coupled to prediction-time transformations.
+The intake page collects those feature families and calculates derived fields such as age group, arrival timing context, BMI, mean arterial pressure, pulse pressure and shock index automatically.
 
-## XGBoost result
+## 7. Model and safety boundary
 
-On the attached dataset using an 80/20 stratified split:
+The XGBoost pipeline predicts the five ESI classes and returns class probabilities. The Node.js triage service then combines that model evidence with independent safety detectors and confidence checks.
 
-| Metric | Result |
-|---|---:|
-| Accuracy | 85.26% |
-| Balanced accuracy | 86.72% |
-| Macro F1 | 86.95% |
-| Weighted F1 | 85.31% |
+The important distinction is:
 
-See `ml/README.md` for per-class results and model configuration.
+```text
+Model recommendation ≠ final clinical decision
+```
 
-## Safety behavior
+A model prediction can be overridden by a red-flag safety signal or by the clinician. A model outage does not block the workflow; the Node service uses the documented deterministic fallback and exposes the fallback source for traceability.
 
-- Red-flag positive → immediate escalation.
-- Low confidence or sparse/conflicting information → abstain and escalate.
-- XGBoost service unavailable → deterministic application fallback; the clinical workflow is not blocked.
-- Engine failure → fail open to manual triage.
-- Clinician override is explicit and audited.
-- Age-aware thresholds are prototype assumptions, not clinical guidance.
+## 8. Alerts and continuous monitoring
 
-## Documentation
+The application uses Socket.IO for realtime operational events. The alert center can surface:
 
-- `docs/ARCHITECTURE.md` — system and decision flow
-- `docs/DEMO_SCRIPT.md` — presentation walkthrough
-- `docs/API.md` — API contract
-- `docs/SECURITY.md` — security and production considerations
-- `docs/ROUND2_CHECKLIST.md` — traceability matrix for the original challenge requirements
-- `ml/README.md` — training and evaluation
-- `ml/README_INFERENCE.md` — local XGBoost inference service
+- Immediate escalation
+- Deterioration detection
+- New triage recommendation
+- Clinician override
+- AI fail-open
+- Surge-mode completion
 
-## Disclaimer
+Waiting patients are periodically reassessed. Surge mode shortens the reassessment cadence from the normal prototype interval to a more frequent interval.
 
-This is a prototype using synthetic data. The model, thresholds and decision logic have not been clinically validated and must not be used for real patient care.
+## 9. Auditability
+
+Decision events are written to an append-only application audit collection. Each event contains the previous event hash and its own SHA-256 hash. The Audit page can verify the chain and identify the first broken event when verification fails.
+
+## 10. Responsive interface
+
+The frontend uses a desktop-first layout with explicit tablet and phone breakpoints. Forms collapse from multi-column layouts to one column, data tables scroll horizontally on small screens, alerts become full-width mobile panels, and navigation changes from a sidebar to compact mobile navigation.
+
+## 11. Documentation index
+
+- `docs/SETUP.md` — exact local setup and troubleshooting.
+- `docs/ARCHITECTURE.md` — system design, data flow and safety boundary.
+- `docs/API.md` — endpoint reference with request/response examples.
+- `docs/SECURITY.md` — authentication, data handling and safety considerations.
+- `docs/TESTING.md` — validation checklist and manual end-to-end tests.
+- `docs/DEMO_SCRIPT.md` — short presentation flow.
+- `docs/ROUND2_CHECKLIST.md` — requirement-to-implementation traceability.
+- `ml/README.md` — model training, schema and evaluation results.
+- `ml/README_INFERENCE.md` — running the XGBoost inference service.
+
+## 12. Product statement
+
+PatientTriage.ai is intended to act as a **second pair of eyes for emergency triage**: it organizes patient context, highlights risk, makes uncertainty explicit, continuously watches the waiting queue and records how the final decision was made.
+
+The platform is a prototype using synthetic data and should be treated as a software demonstration, not as a clinically validated decision system.
