@@ -1,0 +1,3 @@
+export function EsiBadge({esi}){return <span className={`esi-badge esi-${esi||'na'}`}>ESI {esi??'—'}</span>}
+export function ActionBadge({action}){const label={AUTO_CONTEXT:'AUTO-CONTEXT',IMMEDIATE_ESCALATION:'IMMEDIATE ESCALATION',ABSTAIN_AND_ESCALATE:'ABSTAIN & ESCALATE',FAIL_OPEN:'FAIL-OPEN'}[action]||action||'—';const cls={AUTO_CONTEXT:'action-auto',IMMEDIATE_ESCALATION:'action-critical',ABSTAIN_AND_ESCALATE:'action-warning',FAIL_OPEN:'action-manual'}[action]||'action-auto';return <span className={`action-badge ${cls}`}>{label}</span>}
+export function FlagBadge({positive,label}){return <span className={`flag-badge ${positive?'positive':'negative'}`}><span className="flag-dot"/>{label}: {positive?'POSITIVE':'CLEAR'}</span>}
