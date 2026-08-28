@@ -4,6 +4,7 @@ import { socket } from './socket';
 import Sidebar from './components/Sidebar';
 import TopBar from './components/TopBar';
 import Login from './pages/Login';
+import Signup from './pages/Signup';
 import Dashboard from './pages/Dashboard';
 import Intake from './pages/Intake';
 import Queue from './pages/Queue';
@@ -22,9 +23,9 @@ function Shell() {
 
   useEffect(() => {
     socket.connect();
-    const onHealth = (value) => setHealth((old) => ({ ...old, ...value, realtime: 'CONNECTED' }));
-    const onConnect = () => setHealth((old) => ({ ...old, realtime: 'CONNECTED' }));
-    const onDisconnect = () => setHealth((old) => ({ ...old, realtime: 'DISCONNECTED' }));
+    const onHealth = value => setHealth(old => ({ ...old, ...value, realtime: 'CONNECTED' }));
+    const onConnect = () => setHealth(old => ({ ...old, realtime: 'CONNECTED' }));
+    const onDisconnect = () => setHealth(old => ({ ...old, realtime: 'DISCONNECTED' }));
     socket.on('system:health', onHealth);
     socket.on('connect', onConnect);
     socket.on('disconnect', onDisconnect);
@@ -42,26 +43,38 @@ function Shell() {
     : location.pathname === '/audit' ? 'Audit Trail'
     : 'ED Command Centre';
 
-  const logout = () => { localStorage.clear(); socket.disconnect(); navigate('/login'); };
+  const logout = () => {
+    localStorage.clear();
+    socket.disconnect();
+    navigate('/login');
+  };
 
-  return <div className="app-shell">
-    <Sidebar user={user} />
-    <main className="main-area">
-      <TopBar title={title} health={health} user={user} onLogout={logout} />
-      <div className="page-content">
-        <Routes>
-          <Route path="/dashboard" element={<Dashboard health={health} />} />
-          <Route path="/intake" element={<Intake />} />
-          <Route path="/queue" element={<Queue />} />
-          <Route path="/patients/:id" element={<PatientDetail />} />
-          <Route path="/audit" element={<Audit />} />
-          <Route path="*" element={<Navigate to="/dashboard" replace />} />
-        </Routes>
-      </div>
-    </main>
-  </div>;
+  return (
+    <div className="app-shell">
+      <Sidebar user={user} />
+      <main className="main-area">
+        <TopBar title={title} health={health} user={user} onLogout={logout} />
+        <div className="page-content">
+          <Routes>
+            <Route path="/dashboard" element={<Dashboard health={health} />} />
+            <Route path="/intake" element={<Intake />} />
+            <Route path="/queue" element={<Queue />} />
+            <Route path="/patients/:id" element={<PatientDetail />} />
+            <Route path="/audit" element={<Audit />} />
+            <Route path="*" element={<Navigate to="/dashboard" replace />} />
+          </Routes>
+        </div>
+      </main>
+    </div>
+  );
 }
 
 export default function App() {
-  return <Routes><Route path="/login" element={<Login />} /><Route path="*" element={<Protected><Shell /></Protected>} /></Routes>;
+  return (
+    <Routes>
+      <Route path="/login" element={<Login />} />
+      <Route path="/signup" element={<Signup />} />
+      <Route path="*" element={<Protected><Shell /></Protected>} />
+    </Routes>
+  );
 }
