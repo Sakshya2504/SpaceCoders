@@ -57,7 +57,16 @@ io.on('connection', socket => {
   });
 });
 
-const PORT = Number(process.env.PORT || 5001);
+const PORT = Number(process.env.PORT || 3000);
+
+server.on('error', error => {
+  if (error.code === 'EADDRINUSE') {
+    console.error(`Port ${PORT} is already in use. Stop the process using it, or set PORT in server/.env.`);
+  } else {
+    console.error('HTTP server error:', error);
+  }
+  process.exit(1);
+});
 
 connectDB()
   .then(() => {
