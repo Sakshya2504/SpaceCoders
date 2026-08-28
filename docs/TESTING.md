@@ -28,7 +28,25 @@ python ml/train_xgboost.py --data train.csv
 uvicorn ml.inference_service:app --host 127.0.0.1 --port 8000
 ```
 
-## 2. Health checks
+## 2. Automated CI verification
+
+Every push and pull request targeting `main` runs `.github/workflows/ci.yml`.
+
+The workflow checks:
+
+```text
+Node dependency installation
+        ↓
+Backend test suite
+        ↓
+Frontend production build
+        ↓
+Python syntax compilation
+```
+
+This catches import errors, JavaScript test failures, frontend build failures and Python syntax errors before the repository is considered ready. It does not replace the local MongoDB, Socket.IO and XGBoost integration checks below.
+
+## 3. Health checks
 
 Backend:
 
@@ -46,7 +64,7 @@ http://127.0.0.1:8000/health
 
 Verify that XGBoost reports `ok: true` and the expected model version.
 
-## 3. Authentication
+## 4. Authentication
 
 ### Login
 
@@ -75,7 +93,7 @@ Verify that:
 - successful signup creates a session;
 - the server assigns the default `triage_nurse` role.
 
-## 4. Intake and data-contract verification
+## 5. Intake and data-contract verification
 
 Open **Patient Intake**.
 
@@ -101,7 +119,7 @@ ed_los_hours
 triage_acuity
 ```
 
-## 5. Patient creation
+## 6. Patient creation
 
 Submit a valid synthetic patient.
 
@@ -125,7 +143,7 @@ realtime events emitted
 Patient Review opened
 ```
 
-## 6. XGBoost verification
+## 7. XGBoost verification
 
 With the Python service available, create a patient and inspect the stored model metadata.
 
@@ -137,7 +155,7 @@ Verify:
 - model name/version is recorded;
 - Patient Review does not represent the recommendation as an autonomous final decision.
 
-## 7. Red-flag verification
+## 8. Red-flag verification
 
 ### Respiratory case
 
@@ -174,7 +192,7 @@ Use synthetic fever/infection context with tachycardia, elevated respiratory rat
 
 Verify the independent detector is represented in the recommendation.
 
-## 8. Uncertainty and fail-open verification
+## 9. Uncertainty and fail-open verification
 
 Create a patient with complete information and one with `hasHistory = false`.
 
@@ -196,7 +214,7 @@ model source indicates fallback
 
 The failure must not leave the browser request hanging indefinitely.
 
-## 9. Patient identifier verification
+## 10. Patient identifier verification
 
 Open a seeded patient by application ID:
 
@@ -206,7 +224,9 @@ PT-2026-001
 
 Verify that the route returns the patient without a Mongoose ObjectId cast error.
 
-## 10. Clinician decision tests
+Also exercise a valid MongoDB `_id` in a controlled development request to confirm both identifier forms remain supported.
+
+## 11. Clinician decision tests
 
 ### Accept
 
@@ -230,9 +250,9 @@ After saving, confirm `finalEsi` reflects the clinician selection and the overri
 
 ### Reassess
 
-Click **Reassess** and confirm the patient is scored again and the assessment history grows.
+Click **Reassess** and confirm the patient is scored again and the assessment history grows. The UI should show a loading state while the request is in flight and a readable error if the request fails.
 
-## 11. Queue verification
+## 12. Queue verification
 
 Open **Live Queue**.
 
@@ -249,9 +269,11 @@ Click **Reassess now** and verify the queue refreshes.
 
 Toggle **Surge mode** and verify its state changes.
 
-## 12. Reassessment and deterioration
+For development, also exercise the deterioration simulation endpoint with both a synthetic application ID and, where appropriate, a valid MongoDB `_id`.
 
-For a waiting synthetic patient, create a worsening condition through the reassessment workflow.
+## 13. Reassessment and deterioration
+
+For a waiting synthetic patient, create a worsening condition through the reassessment/simulation workflow.
 
 Verify:
 
@@ -262,12 +284,12 @@ new ESI
     ↓
 deteriorationDetected
     ↓
-realtime reassessment event
+realtime deterioration event
     ↓
 alert / audit activity
 ```
 
-## 13. Realtime alert testing
+## 14. Realtime alert testing
 
 Keep the alert center visible and trigger events through the workflow.
 
@@ -279,12 +301,13 @@ immediate escalation
 deterioration
 override
 fail-open
+surge completion
 queue update
 ```
 
 The alert center should update unread state without a full page reload.
 
-## 14. Audit verification
+## 15. Audit verification
 
 Open **Audit Trail**.
 
@@ -296,11 +319,26 @@ For a healthy seed/demo state, expect:
 CHAIN VALID
 ```
 
-The result should include the number of verified events.
+and a count of verified events.
 
 To test the invalid path in a controlled development environment, alter a test audit document and run verification. The service should report the first broken event rather than simply returning a generic failure.
 
-## 15. Responsive verification
+## 16. Dashboard verification
+
+Open **Command Centre** after creating several synthetic patients.
+
+Verify that:
+
+- Patients today reflects today's arrivals rather than total database size;
+- waiting volume reflects patients currently waiting;
+- critical/high-risk counts are derived from current queue state;
+- ESI distribution is calculated from today's patient set;
+- red-flag counts are calculated from today's patient set;
+- average confidence reflects available today's triage results;
+- average triage time is derived from stored timestamps rather than a hardcoded value;
+- database health comes from the actual MongoDB connection state.
+
+## 17. Responsive verification
 
 Test approximately:
 
@@ -321,7 +359,7 @@ Confirm:
 - navigation remains reachable;
 - dense tables scroll locally when necessary.
 
-## 16. Build verification
+## 18. Build verification
 
 Run:
 
@@ -331,7 +369,9 @@ npm run build
 
 The Vite production build should complete without unresolved imports or syntax errors.
 
-## 17. Regression checklist
+The same frontend build and backend tests are also checked by GitHub Actions on pushes and pull requests.
+
+## 19. Regression checklist
 
 ```text
 [ ] npm install succeeds
@@ -358,17 +398,20 @@ The Vite production build should complete without unresolved imports or syntax e
 [ ] override works
 [ ] reassess works
 [ ] queue works
+[ ] deterioration simulation works
 [ ] surge mode works
 [ ] realtime alerts appear
 [ ] audit chain verifies
+[ ] dashboard metrics are dynamic
 [ ] responsive layouts work
 [ ] production build completes
+[ ] GitHub Actions checks pass
 ```
 
-## 18. Test-data safety
+## 20. Test-data safety
 
 All functional testing in this repository should use synthetic data. Never run the destructive seed process against a production database.
 
-## 19. Test-result interpretation
+## 21. Test-result interpretation
 
 A passing software regression suite demonstrates implementation correctness for the current prototype. It does not prove clinical accuracy, safety, bias mitigation, effectiveness, regulatory compliance or suitability for unsupervised patient care.
