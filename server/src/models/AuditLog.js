@@ -1,3 +1,4 @@
-import mongoose from "mongoose";
-const auditSchema=new mongoose.Schema({event:{type:String,required:true},actor:{type:String,default:"system"},actorRole:String,patientId:String,payload:mongoose.Schema.Types.Mixed,hash:String,previousHash:String,createdAt:{type:Date,default:Date.now,immutable:true}},{versionKey:false});
-export default mongoose.model("AuditLog",auditSchema);
+import mongoose from 'mongoose';
+const auditSchema=new mongoose.Schema({eventId:{type:String,required:true,unique:true},eventType:{type:String,required:true,index:true},patientId:{type:String,default:null,index:true},actorId:{type:String,default:'SYSTEM'},actorRole:{type:String,default:'SYSTEM'},timestamp:{type:Date,default:Date.now,index:true},payload:{type:mongoose.Schema.Types.Mixed,default:{}},previousHash:{type:String,default:'GENESIS'},hash:{type:String,required:true,index:true}},{versionKey:false});
+auditSchema.index({timestamp:-1});
+export default mongoose.model('AuditLog',auditSchema);
