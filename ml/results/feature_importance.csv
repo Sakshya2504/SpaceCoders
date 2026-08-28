@@ -1,0 +1,15 @@
+feature,importance
+news2_score,0.2549851
+gcs_total,0.1871357
+pain_score,0.0783493
+mental_status_triage_alert,0.0267092
+spo2,0.0266841
+num_prior_ed_visits_12m,0.0226707
+temperature_c,0.0190563
+respiratory_rate,0.0137609
+mental_status_triage_unresponsive,0.0137017
+mental_status_triage_confused,0.0086293
+heart_rate,0.0082996
+mean_arterial_pressure,0.0068622
+shock_index,0.0061116
+diastolic_bp,0.0053243
