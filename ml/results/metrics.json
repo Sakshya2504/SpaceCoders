@@ -1,0 +1,42 @@
+{
+  "model": "XGBoost",
+  "task": "multiclass classification",
+  "target": "triage_acuity",
+  "classes": ["ESI 1", "ESI 2", "ESI 3", "ESI 4", "ESI 5"],
+  "dataset_rows": 80000,
+  "train_rows": 64000,
+  "test_rows": 16000,
+  "split": "80/20 stratified train-test split",
+  "random_state": 42,
+  "excluded_columns": ["patient_id", "disposition", "ed_los_hours", "triage_acuity"],
+  "accuracy": 0.8525625,
+  "balanced_accuracy": 0.8672351203,
+  "macro_f1": 0.8694512959,
+  "weighted_f1": 0.8531268386,
+  "per_class": {
+    "ESI 1": {"precision": 0.9614, "recall": 0.9286, "f1": 0.9447, "support": 644},
+    "ESI 2": {"precision": 0.9725, "recall": 0.9728, "f1": 0.9727, "support": 2688},
+    "ESI 3": {"precision": 0.8949, "recall": 0.8786, "f1": 0.8867, "support": 5784},
+    "ESI 4": {"precision": 0.7575, "recall": 0.7737, "f1": 0.7655, "support": 4604},
+    "ESI 5": {"precision": 0.7730, "recall": 0.7825, "f1": 0.7777, "support": 2280}
+  },
+  "confusion_matrix": [
+    [598, 46, 0, 0, 0],
+    [24, 2615, 49, 0, 0],
+    [0, 28, 5082, 653, 21],
+    [0, 0, 539, 3562, 503],
+    [0, 0, 9, 487, 1784]
+  ],
+  "top_features": [
+    {"feature": "news2_score", "importance": 0.2549851},
+    {"feature": "gcs_total", "importance": 0.1871357},
+    {"feature": "pain_score", "importance": 0.0783493},
+    {"feature": "mental_status_triage_alert", "importance": 0.0267092},
+    {"feature": "spo2", "importance": 0.0266841},
+    {"feature": "num_prior_ed_visits_12m", "importance": 0.0226707},
+    {"feature": "temperature_c", "importance": 0.0190563},
+    {"feature": "respiratory_rate", "importance": 0.0137609},
+    {"feature": "mental_status_triage_unresponsive", "importance": 0.0137017},
+    {"feature": "mental_status_triage_confused", "importance": 0.0086293}
+  ]
+}
