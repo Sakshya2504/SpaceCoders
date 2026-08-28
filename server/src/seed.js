@@ -46,7 +46,7 @@ await User.create([
   { name: 'System Admin', email: 'system@patienttriage.demo', passwordHash, role: 'system_admin' }
 ]);
 
-for (let i = 0; i < complaints.length; i++) {
+for (let i = 0; i < complaints.length; i += 1) {
   const age = ages[i];
   const vitals = {
     heartRate: 78 + (i * 7) % 55,
@@ -63,15 +63,54 @@ for (let i = 0; i < complaints.length; i++) {
     vitals.respiratoryRate = 34;
   }
 
-  if (i === 1) {
-    vitals.heartRate = 112;
-  }
+  if (i === 1) vitals.heartRate = 112;
 
   if (i === 3) {
     vitals.temperature = 39.2;
     vitals.heartRate = 128;
     vitals.systolicBP = 84;
   }
+
+  const modelFeatures = {
+    site_id: 'SITE-DEMO-01',
+    triage_nurse_id: 'NURSE-DEMO',
+    arrival_mode: i < 4 ? 'ambulance' : i % 3 === 0 ? 'walk-in' : 'brought_by_family',
+    arrival_hour: 9 + (i % 12),
+    arrival_day: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'][i % 7],
+    arrival_month: 1 + (i % 12),
+    arrival_season: ['winter', 'spring', 'summer', 'autumn'][i % 4],
+    shift: ['morning', 'afternoon', 'evening', 'night'][i % 4],
+    age,
+    age_group: age <= 12 ? 'pediatric' : age <= 17 ? 'adolescent' : age <= 64 ? 'young_adult' : 'elderly',
+    sex: i % 2 ? 'F' : 'M',
+    language: i % 5 === 0 ? 'Finnish' : 'English',
+    insurance_type: ['public', 'private', 'none', 'military'][i % 4],
+    transport_origin: ['home', 'public_space', 'nursing_home', 'outdoor'][i % 4],
+    pain_location: ['chest', 'abdomen', 'head', 'extremity'][i % 4],
+    mental_status_triage: i === 3 || i === 5 ? 'confused' : 'alert',
+    chief_complaint_system: ['respiratory', 'cardiovascular', 'neurological', 'infectious'][i % 4],
+    num_prior_ed_visits_12m: i % 5,
+    num_prior_admissions_12m: i % 4,
+    num_active_medications: 1 + (i % 7),
+    num_comorbidities: i % 4,
+    systolic_bp: vitals.systolicBP,
+    diastolic_bp: vitals.diastolicBP,
+    mean_arterial_pressure: (vitals.systolicBP + 2 * vitals.diastolicBP) / 3,
+    pulse_pressure: vitals.systolicBP - vitals.diastolicBP,
+    heart_rate: vitals.heartRate,
+    respiratory_rate: vitals.respiratoryRate,
+    temperature_c: vitals.temperature,
+    spo2: vitals.spo2,
+    gcs_total: i === 3 ? 13 : 15,
+    pain_score: vitals.painScore,
+    weight_kg: 20 + (age * 0.7),
+    height_cm: age < 12 ? 105 + age * 6 : 150 + (i % 20),
+    bmi: null,
+    shock_index: vitals.heartRate / vitals.systolicBP,
+    news2_score: i === 0 ? 8 : i === 3 ? 7 : i % 4
+  };
+
+  modelFeatures.bmi = modelFeatures.weight_kg / ((modelFeatures.height_cm / 100) ** 2);
 
   const input = {
     firstName: `Demo${i + 1}`,
@@ -80,12 +119,13 @@ for (let i = 0; i < complaints.length; i++) {
     sex: i % 2 ? 'Female' : 'Male',
     chiefComplaint: complaints[i],
     vitals,
-    mentalStatus: i === 3 ? 'Confused' : 'Alert and oriented',
+    mentalStatus: i === 3 || i === 5 ? 'Confused' : 'Alert and oriented',
     hasHistory: i % 4 !== 2,
-    historySummary: i % 4 !== 2 ? 'Synthetic prior history' : ''
+    historySummary: i % 4 !== 2 ? 'Synthetic prior history' : '',
+    modelFeatures
   };
 
-  const scored = scorePatient(input);
+  const scored = await scorePatient(input);
   const arrival = new Date(Date.now() - (i + 2) * 4 * 60000);
 
   await Patient.create({
@@ -99,7 +139,7 @@ for (let i = 0; i < complaints.length; i++) {
     lastReassessmentAt: arrival,
     nextReassessmentAt: new Date(Date.now() + 120000),
     assessments: [{ ...scored, generatedAt: new Date(scored.timestamp), trigger: 'ARRIVAL' }],
-    status: 'WAITING',
+    status: scored.action === 'FAIL_OPEN' ? 'MANUAL_TRIAGE_REQUIRED' : 'WAITING',
     queueStatus: 'WAITING',
     position: i + 1
   });
