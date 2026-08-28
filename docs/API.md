@@ -1,12 +1,30 @@
 # API Reference
 
-The API runs on `http://localhost:3000` by default.
+PatientTriage.ai exposes a Node/Express application API for the web client and a small FastAPI service for XGBoost inference.
 
-Protected endpoints require a bearer token returned by `/api/auth/login` or `/api/auth/signup`.
+## Base URLs
+
+```text
+Frontend:     http://localhost:5173
+Node API:     http://localhost:3000/api
+ML service:   http://127.0.0.1:8000
+```
+
+The Node service owns authentication, authorization, patient workflow, safety logic, queue monitoring, alerts and audit records. The Python service has one responsibility: load the trained XGBoost pipeline and return class probabilities.
 
 ## Authentication
 
-### POST `/api/auth/login`
+Protected endpoints require:
+
+```http
+Authorization: Bearer <JWT>
+```
+
+Tokens are returned by the login and signup endpoints.
+
+### POST `/auth/login`
+
+Authenticates an existing account.
 
 Request:
 
@@ -17,61 +35,127 @@ Request:
 }
 ```
 
-Returns a JWT and the authenticated user.
+The response contains a JWT and the authenticated user profile.
 
-### POST `/api/auth/signup`
+### POST `/auth/signup`
 
-Creates a new demo triage-nurse account. The server assigns the default `triage_nurse` role rather than trusting a client-supplied privilege level.
+Creates a new account.
+
+Request:
+
+```json
+{
+  "name": "Demo Nurse",
+  "email": "demo@example.com",
+  "password": "demo123"
+}
+```
+
+The server assigns the default `triage_nurse` role. Client input cannot be used to self-assign a privileged role.
 
 ## Patients
 
-### GET `/api/patients`
+### GET `/patients`
 
-Returns patient records. Optional query parameters include `status` and `q` for filtering/search.
+Returns patient records.
 
-### POST `/api/patients`
+Optional query parameters:
 
-Creates a patient, extracts complaint signals, scores triage and places the patient into the queue.
+```text
+status  Filter by patient status.
+q       Search patient ID, first name, last name or chief complaint.
+```
 
-The request contains clinician-facing fields plus `modelFeatures`, which follows the training dataset column names.
+### POST `/patients`
 
-### GET `/api/patients/:id`
+Creates a patient and performs the initial triage assessment.
 
-Fetches a patient by either the synthetic `patientId` or MongoDB `_id`.
+The normal intake payload includes:
 
-### POST `/api/patients/:id/triage`
+- patient identity;
+- age and sex;
+- arrival and presentation context;
+- chief complaint;
+- mental status;
+- history and utilization information;
+- bedside measurements;
+- dataset-aligned `modelFeatures`.
 
-Re-runs the decision engine for the patient.
+The backend generates `patientId` when it is not supplied by the client.
 
-### POST `/api/patients/:id/accept`
+### GET `/patients/:id`
 
-Records explicit clinician acceptance of the current recommendation.
+Fetches a patient using either the application-level `patientId` (for example `PT-2026-LWSBKX`) or a valid MongoDB `_id`.
 
-### POST `/api/patients/:id/override`
+The route only attempts MongoDB ObjectId casting when the supplied value is actually an ObjectId. This prevents synthetic patient identifiers from producing a Mongoose cast error.
 
-Requires `targetEsi` and a structured `reason`. The override is persisted and audited.
+### POST `/patients/:id/triage`
 
-### POST `/api/patients/:id/reassess`
+Runs another triage assessment for the specified patient.
 
-Re-runs triage and records a queue reassessment event.
+If manual mode is enabled, the endpoint returns the fail-open/manual-triage response rather than attempting model inference.
 
-### POST `/api/patients/:id/manual-triage`
+### POST `/patients/:id/accept`
 
-Records a manually selected ESI from 1–5 when the model is unavailable or clinical workflow requires manual entry.
+Stores explicit clinician acceptance of the current recommendation.
+
+The model recommendation and clinician decision are kept as separate fields for traceability.
+
+### POST `/patients/:id/override`
+
+Stores an explicit clinician override.
+
+Request:
+
+```json
+{
+  "targetEsi": 2,
+  "reason": "New vital signs",
+  "note": "Repeat measurement showed lower SpO2."
+}
+```
+
+Validation:
+
+- `targetEsi` must be an integer from 1 to 5.
+- `reason` is required.
+- the event is written to the audit chain.
+
+### POST `/patients/:id/reassess`
+
+Re-runs the triage flow and records a reassessment event.
+
+This endpoint is used by clinician-triggered reassessment and the live-monitoring workflow.
+
+### POST `/patients/:id/manual-triage`
+
+Records a manual ESI value from 1 through 5.
+
+Request:
+
+```json
+{
+  "esi": 2
+}
+```
+
+This path keeps the care workflow available when AI inference is unavailable or manual triage is required.
 
 ## Queue
 
-### GET `/api/queue`
+### GET `/queue`
 
-Returns the current waiting queue.
+Returns currently waiting patients with queue position and triage context.
 
-### POST `/api/queue/tick`
+### POST `/queue/tick`
 
-Runs a queue-monitoring pass and reassesses eligible waiting patients.
+Runs the queue monitor. Patients whose next reassessment is due are re-scored, deterioration is checked, audit events are recorded and the queue is reordered.
 
-### POST `/api/queue/surge`
+### POST `/queue/surge`
 
 Enables or disables surge behavior.
+
+Request:
 
 ```json
 {
@@ -79,32 +163,207 @@ Enables or disables surge behavior.
 }
 ```
 
+Surge mode uses the shorter prototype reassessment interval.
+
 ## Dashboard
 
-### GET `/api/dashboard/summary`
+### GET `/dashboard/summary`
 
-Returns operational KPIs including patients today, waiting volume, critical cases, high-risk cases, reassessment due, confidence and active alerts.
+Returns operational summary values such as:
 
-### GET `/api/dashboard/metrics`
+- patients today;
+- waiting volume;
+- critical cases;
+- high-risk cases;
+- reassessment due;
+- confidence information;
+- active alerts.
 
-Returns risk distribution and recent audit activity.
+### GET `/dashboard/metrics`
+
+Returns additional metrics used by the Command Centre, including acuity distribution and recent activity.
 
 ## Audit
 
-### GET `/api/audit`
+### GET `/audit`
 
-Returns audit events.
+Returns recent audit events.
 
-### GET `/api/audit/verify`
+An event can contain:
 
-Walks the linked SHA-256 chain and reports whether it is valid.
+```text
+eventId
+eventType
+patientId
+actorId
+actorRole
+timestamp
+payload
+previousHash
+hash
+```
+
+### GET `/audit/verify`
+
+Recomputes the SHA-256 linked chain from `GENESIS` and reports whether every stored event matches its expected previous hash and current hash.
+
+When invalid, the response identifies the first broken event where available.
 
 ## Health
 
-### GET `/api/health`
+### GET `/health`
 
-Returns service, database and model-mode health information.
+Returns service and infrastructure status.
+
+Example:
+
+```json
+{
+  "success": true,
+  "data": {
+    "ok": true,
+    "service": "PatientTriage.ai",
+    "mode": "prototype",
+    "aiEngine": "ONLINE",
+    "database": "ONLINE",
+    "realtime": "CONNECTED"
+  },
+  "message": "Health status",
+  "error": null
+}
+```
+
+## XGBoost inference API
+
+The Python inference service normally listens on `127.0.0.1:8000`.
+
+### GET `/health`
+
+Checks whether the persisted XGBoost pipeline can be loaded.
+
+### POST `/predict`
+
+Request:
+
+```json
+{
+  "features": {
+    "site_id": "SITE-DEMO-01",
+    "triage_nurse_id": "NURSE-DEMO",
+    "arrival_mode": "walk-in",
+    "arrival_hour": 14,
+    "arrival_day": "Thursday",
+    "arrival_month": 8,
+    "arrival_season": "summer",
+    "shift": "afternoon",
+    "age": 42,
+    "age_group": "young_adult",
+    "sex": "M",
+    "language": "English",
+    "insurance_type": "unknown",
+    "transport_origin": "home",
+    "pain_location": "chest",
+    "mental_status_triage": "alert",
+    "chief_complaint_system": "cardiovascular",
+    "num_prior_ed_visits_12m": 0,
+    "num_prior_admissions_12m": 0,
+    "num_active_medications": 0,
+    "num_comorbidities": 0,
+    "systolic_bp": 120,
+    "diastolic_bp": 80,
+    "mean_arterial_pressure": 93.3,
+    "pulse_pressure": 40,
+    "heart_rate": 90,
+    "respiratory_rate": 18,
+    "temperature_c": 37,
+    "spo2": 98,
+    "gcs_total": 15,
+    "pain_score": 3,
+    "weight_kg": 70,
+    "height_cm": 170,
+    "bmi": 24.2,
+    "shock_index": 0.75,
+    "news2_score": 0
+  }
+}
+```
+
+Response:
+
+```json
+{
+  "model": "XGBoost",
+  "modelVersion": "xgboost-multiclass-v1",
+  "esi": 3,
+  "probabilities": {
+    "ESI 1": 0.01,
+    "ESI 2": 0.05,
+    "ESI 3": 0.86,
+    "ESI 4": 0.06,
+    "ESI 5": 0.02
+  },
+  "confidence": 86.0
+}
+```
+
+The Node decision engine does not blindly expose this prediction as the final outcome. It applies its independent safety and uncertainty rules after the model response.
+
+## Socket.IO events
+
+The web client listens for realtime operational events including:
+
+```text
+system:health
+patient:created
+triage:completed
+escalation
+deterioration
+reassessment
+override
+queue:updated
+surge:completed
+```
+
+These events update the live queue, system health state and alert center without requiring a page refresh.
+
+## Standard error shape
+
+The application uses a consistent response format:
+
+```json
+{
+  "success": false,
+  "data": null,
+  "message": "Patient not found",
+  "error": "PATIENT_NOT_FOUND"
+}
+```
+
+Typical HTTP status codes:
+
+```text
+200  Successful read/update.
+201  Successful create.
+401  Authentication missing or invalid.
+403  Authenticated but not authorized for the action.
+404  Resource not found.
+422  Validation error.
+429  Rate limit exceeded.
+500  Unexpected server error.
+```
+
+## Authorization contract
+
+The browser is not trusted to enforce clinical permissions. JWT authentication and role checks are performed on the server. The frontend may hide or show controls for usability, but the backend remains authoritative.
 
 ## Safety contract
 
-The frontend presents recommendations but does not authorize actions. Authorization is enforced by server-side JWT/RBAC middleware. Red-flag escalation, low-confidence abstention and fail-open behavior are server-side concerns, not cosmetic UI states.
+The following are server-side application behaviors:
+
+1. Independent red-flag detection can force immediate escalation.
+2. Low confidence or incomplete/conflicting information can enter `ABSTAIN_AND_ESCALATE`.
+3. Model/inference failure can enter `FAIL_OPEN` and preserve manual triage.
+4. Clinician acceptance and overrides are explicitly recorded.
+5. Audit events are chained for later verification.
+
+These are prototype software behaviors and are not substitutes for clinical validation or medical-device governance.
