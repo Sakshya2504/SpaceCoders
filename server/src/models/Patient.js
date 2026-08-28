@@ -34,18 +34,19 @@ const assessmentSchema = new mongoose.Schema({
   dataCompleteness: Number,
   hasHistory: Boolean,
   modelVersion: String,
+  modelSource: String,
+  modelConfidence: Number,
+  modelProbabilities: mongoose.Schema.Types.Mixed,
   trigger: String
 });
 
 /*
  * `modelFeatures` stores the dataset-aligned feature vector used for ML work.
- * Keeping this separate from the clinician-facing fields gives us a clean
- * contract for the future XGBoost inference service without making the UI
- * depend on scikit-learn column names.
+ * Keeping this separate from clinician-facing fields gives inference a stable
+ * contract while allowing the UI to use human-friendly labels.
  */
 const patientSchema = new mongoose.Schema(
   {
-    // Synthetic identity used by the application. MongoDB `_id` remains internal.
     patientId: { type: String, unique: true, index: true },
     firstName: { type: String, required: true, trim: true },
     lastName: { type: String, required: true, trim: true },
@@ -53,7 +54,6 @@ const patientSchema = new mongoose.Schema(
     sex: { type: String, enum: ['Female', 'Male', 'Other'] },
     arrivalTime: { type: Date, default: Date.now },
 
-    // Clinician-facing intake information.
     chiefComplaint: { type: String, required: true, trim: true },
     extractedSymptoms: { type: [String], default: [] },
     vitals: {
@@ -72,7 +72,7 @@ const patientSchema = new mongoose.Schema(
     medications: { type: [String], default: [] },
     allergies: { type: [String], default: [] },
 
-    // Dataset-aligned vector. Derived values are calculated before inference.
+    // Exact dataset-style input retained for reproducible model inference.
     modelFeatures: { type: mongoose.Schema.Types.Mixed, default: {} },
 
     triage: {
@@ -88,12 +88,15 @@ const patientSchema = new mongoose.Schema(
       dataCompleteness: Number,
       hasHistory: Boolean,
       modelVersion: String,
+      modelSource: String,
+      modelConfidence: Number,
+      modelProbabilities: mongoose.Schema.Types.Mixed,
       generatedAt: Date
     },
 
     assessments: { type: [assessmentSchema], default: [] },
 
-    // Human decision fields are distinct from the model recommendation.
+    // Keep clinician decisions separate from AI recommendations.
     manualEsi: { type: Number, min: 1, max: 5, default: null },
     finalEsi: { type: Number, min: 1, max: 5, default: null },
     status: {
@@ -126,7 +129,7 @@ const patientSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// The queue query is the hottest patient-list query, so keep a compound index for it.
+// The queue query is frequent, so keep its main sort/filter path indexed.
 patientSchema.index({ queueStatus: 1, 'triage.esi': 1, arrivalTime: 1 });
 
 export default mongoose.model('Patient', patientSchema);
