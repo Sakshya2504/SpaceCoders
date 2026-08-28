@@ -53,7 +53,7 @@ function Shell() {
     <div className="app-shell">
       <Sidebar user={user} />
       <main className="main-area">
-        <TopBar title={title} health={health} user={user} onLogout={logout} />
+        <TopBar title={title} health={health} user={user} onLogout={logout} socket={socket} />
         <div className="page-content">
           <Routes>
             <Route path="/dashboard" element={<Dashboard health={health} />} />
