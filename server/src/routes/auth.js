@@ -1,1 +1,11 @@
-import {Router} from "express";import bcrypt from "bcryptjs";import jwt from "jsonwebtoken";import User from "../models/User.js";const router=Router();router.post("/login",async(req,res)=>{const{email,password}=req.body;const user=await User.findOne({email:email?.toLowerCase()});if(!user||!(await bcrypt.compare(password||"",user.password)))return res.status(401).json({message:"Invalid email or password"});const token=jwt.sign({id:user._id,name:user.name,email:user.email,role:user.role},process.env.JWT_SECRET,{expiresIn:"8h"});res.json({token,user:{id:user._id,name:user.name,email:user.email,role:user.role}})});export default router;
+import { Router } from 'express';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+import User from '../models/User.js';
+import { requireAuth } from '../middleware/auth.js';
+import { appendAudit } from '../services/audit.js';
+const router=Router();
+router.post('/login',async(req,res,next)=>{try{const{email,password}=req.body||{};const user=await User.findOne({email:email?.toLowerCase().trim()});if(!user||!user.active||!(await bcrypt.compare(password||'',user.passwordHash)))return res.status(401).json({success:false,message:'Invalid credentials'});const token=jwt.sign({sub:user._id.toString(),role:user.role},process.env.JWT_SECRET,{expiresIn:'8h'});await appendAudit({eventType:'LOGIN',actorId:user._id.toString(),actorRole:user.role,payload:{email:user.email}});return res.json({success:true,data:{token,user:{id:user._id,name:user.name,email:user.email,role:user.role}},message:'Login successful',error:null});}catch(e){next(e);}});
+router.get('/me',requireAuth,async(req,res)=>res.json({success:true,data:{id:req.user._id,name:req.user.name,email:req.user.email,role:req.user.role},message:'Current user',error:null}));
+router.post('/logout',requireAuth,async(req,res)=>{await appendAudit({eventType:'LOGOUT',actorId:req.user._id.toString(),actorRole:req.user.role});return res.json({success:true,data:null,message:'Logged out',error:null});});
+export default router;
