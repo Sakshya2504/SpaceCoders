@@ -16,8 +16,8 @@ const io = (req) => req.app.get('io');
 const buildPatientId = () =>
   `PT-${new Date().getFullYear()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
 
-// Important: patientId values such as PT-2026-LWSBKX are not MongoDB ObjectIds.
-// Only include _id in a query when the incoming route parameter is actually a valid ObjectId.
+// Route IDs use the human-readable PT-YYYY-XXXX format. Only query MongoDB's
+// internal ObjectId field when the value actually has ObjectId syntax.
 const patientSelector = (id) =>
   isValidObjectId(id)
     ? { $or: [{ _id: id }, { patientId: id }] }
@@ -27,17 +27,15 @@ router.get('/', async (req, res, next) => {
   try {
     const filter = {};
 
-    if (req.query.status) {
-      filter.status = req.query.status;
-    }
+    if (req.query.status) filter.status = req.query.status;
 
     if (req.query.q) {
-      const q = String(req.query.q).trim();
+      const query = String(req.query.q).trim();
       filter.$or = [
-        { patientId: new RegExp(q, 'i') },
-        { firstName: new RegExp(q, 'i') },
-        { lastName: new RegExp(q, 'i') },
-        { chiefComplaint: new RegExp(q, 'i') }
+        { patientId: new RegExp(query, 'i') },
+        { firstName: new RegExp(query, 'i') },
+        { lastName: new RegExp(query, 'i') },
+        { chiefComplaint: new RegExp(query, 'i') }
       ];
     }
 
@@ -85,6 +83,8 @@ router.post(
         );
       }
 
+      // The browser can provide modelFeatures, but the server persists and
+      // validates the resulting feature contract before it is used for scoring.
       const patient = await Patient.create({
         patientId: body.patientId || buildPatientId(),
         ...body,
@@ -93,7 +93,7 @@ router.post(
         queueStatus: 'WAITING'
       });
 
-      const scored = scorePatient(patient.toObject());
+      const scored = await scorePatient(patient.toObject());
 
       patient.triage = {
         ...scored,
@@ -115,23 +115,27 @@ router.post(
       await patient.save();
       await reorderQueue();
 
+      const actorId = req.user._id.toString();
+
       await appendAudit({
         eventType: 'PATIENT_CREATED',
         patientId: patient.patientId,
-        actorId: req.user._id.toString(),
+        actorId,
         actorRole: req.user.role,
-        payload: { esi: scored.esi }
+        payload: { esi: scored.esi, modelSource: scored.modelSource }
       });
 
       await appendAudit({
         eventType: 'TRIAGE_SCORED',
         patientId: patient.patientId,
-        actorId: req.user._id.toString(),
+        actorId,
         actorRole: req.user.role,
         payload: {
           esi: scored.esi,
           confidence: scored.confidence,
-          action: scored.action
+          action: scored.action,
+          modelSource: scored.modelSource,
+          modelVersion: scored.modelVersion
         }
       });
 
@@ -139,7 +143,7 @@ router.post(
         await appendAudit({
           eventType: 'ESCALATION',
           patientId: patient.patientId,
-          actorId: req.user._id.toString(),
+          actorId,
           actorRole: req.user.role,
           payload: { action: scored.action }
         });
@@ -149,7 +153,8 @@ router.post(
       io(req)?.emit('triage:completed', {
         patientId: patient.patientId,
         esi: scored.esi,
-        action: scored.action
+        action: scored.action,
+        modelSource: scored.modelSource
       });
 
       if (scored.escalation) {
@@ -198,7 +203,7 @@ router.post(
         );
       }
 
-      const scored = scorePatient({ ...patient.toObject(), ...req.body });
+      const scored = await scorePatient({ ...patient.toObject(), ...req.body });
 
       patient.triage = {
         ...scored,
@@ -226,7 +231,8 @@ router.post(
         payload: {
           esi: scored.esi,
           confidence: scored.confidence,
-          action: scored.action
+          action: scored.action,
+          modelSource: scored.modelSource
         }
       });
 
@@ -243,7 +249,8 @@ router.post(
       io(req)?.emit('triage:completed', {
         patientId: patient.patientId,
         esi: scored.esi,
-        action: scored.action
+        action: scored.action,
+        modelSource: scored.modelSource
       });
 
       return ok(res, patient, 'Triage completed');
@@ -277,7 +284,6 @@ router.post(
       });
 
       io(req)?.emit('queue:updated', { reason: 'accepted' });
-
       return ok(res, patient, 'Recommendation accepted');
     } catch (error) {
       next(error);
@@ -329,11 +335,7 @@ router.post(
         patientId: patient.patientId,
         actorId: req.user._id.toString(),
         actorRole: req.user.role,
-        payload: {
-          targetEsi: Number(targetEsi),
-          reason,
-          note
-        }
+        payload: { targetEsi: Number(targetEsi), reason, note }
       });
 
       await reorderQueue();
@@ -363,7 +365,7 @@ router.post(
       }
 
       const previousEsi = patient.finalEsi || patient.triage?.esi || 5;
-      const scored = scorePatient({ ...patient.toObject(), ...req.body });
+      const scored = await scorePatient({ ...patient.toObject(), ...req.body });
 
       patient.triage = {
         ...scored,
@@ -386,19 +388,20 @@ router.post(
 
       await patient.save();
 
+      const actorId = req.user._id.toString();
       await appendAudit({
         eventType: 'QUEUE_REASSESSMENT',
         patientId: patient.patientId,
-        actorId: req.user._id.toString(),
+        actorId,
         actorRole: req.user.role,
-        payload: { previousEsi, newEsi: scored.esi }
+        payload: { previousEsi, newEsi: scored.esi, modelSource: scored.modelSource }
       });
 
       if (patient.deteriorationDetected) {
         await appendAudit({
           eventType: 'DETERIORATION_DETECTED',
           patientId: patient.patientId,
-          actorId: req.user._id.toString(),
+          actorId,
           actorRole: req.user.role,
           payload: { newEsi: scored.esi }
         });
@@ -411,7 +414,6 @@ router.post(
       });
 
       await reorderQueue();
-
       return ok(res, patient, 'Reassessment completed');
     } catch (error) {
       next(error);
@@ -426,18 +428,8 @@ router.post(
     try {
       const { esi } = req.body || {};
 
-      if (
-        !Number.isInteger(Number(esi)) ||
-        Number(esi) < 1 ||
-        Number(esi) > 5
-      ) {
-        return fail(
-          res,
-          'Manual ESI must be 1-5',
-          'VALIDATION_ERROR',
-          null,
-          422
-        );
+      if (!Number.isInteger(Number(esi)) || Number(esi) < 1 || Number(esi) > 5) {
+        return fail(res, 'Manual ESI must be 1-5', 'VALIDATION_ERROR', null, 422);
       }
 
       const patient = await Patient.findOne(patientSelector(req.params.id));
@@ -449,7 +441,6 @@ router.post(
       patient.manualEsi = Number(esi);
       patient.finalEsi = Number(esi);
       patient.status = 'WAITING';
-
       await patient.save();
 
       await appendAudit({
@@ -461,7 +452,6 @@ router.post(
       });
 
       io(req)?.emit('queue:updated', { reason: 'manual triage' });
-
       return ok(res, patient, 'Manual triage recorded');
     } catch (error) {
       next(error);
