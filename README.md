@@ -369,6 +369,22 @@ The UI is desktop-first but has dedicated responsive behavior:
 
 Dense tables use local horizontal scrolling instead of creating page-wide overflow.
 
+## Verification and CI
+
+The repository includes a GitHub Actions workflow at `.github/workflows/ci.yml`. On pushes and pull requests to `main`, it validates the application at three levels:
+
+```text
+Node dependencies
+    ↓
+Backend test suite
+    ↓
+Frontend production build
+    ↓
+Python module syntax compilation
+```
+
+This CI job is a fast source-level gate. It does not start MongoDB or the local XGBoost service, so environment-dependent integration behavior still needs the checks in `docs/TESTING.md`.
+
 ## Troubleshooting
 
 ### Backend says port 3000 is already in use
