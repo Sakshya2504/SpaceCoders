@@ -78,7 +78,7 @@ def build_pipeline(X: pd.DataFrame) -> Pipeline:
         n_jobs=4,
     )
 
-    return Pipeline([(\"preprocess\", preprocessor), (\"model\", model)])
+    return Pipeline([("preprocess", preprocessor), ("model", model)])
 
 
 def main() -> None:
@@ -107,7 +107,6 @@ def main() -> None:
     pipeline.fit(X_train, y_train)
 
     predictions = pipeline.predict(X_test).astype(int)
-    probabilities = pipeline.predict_proba(X_test)
 
     metrics = {
         "model": "XGBoost",
