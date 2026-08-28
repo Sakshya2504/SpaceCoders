@@ -57,30 +57,12 @@ io.on('connection', socket => {
   });
 });
 
-const PORT = Number(process.env.PORT || 5000);
+const PORT = Number(process.env.PORT || 5001);
 
-function startServer() {
-  const tryListen = port => {
-    const onError = error => {
-      if (error.code === 'EADDRINUSE') {
-        const fallback = port + 1;
-        console.warn(`Port ${port} is busy. Retrying on ${fallback}...`);
-        server.removeListener('error', onError);
-        tryListen(fallback);
-        return;
-      }
-
-      console.error('Server listen failed:', error);
-      process.exit(1);
-    };
-
-    server.once('error', onError);
-    server.listen(port, () => {
-      console.log(`PatientTriage API listening on ${port}`);
-      if (port !== PORT) {
-        console.log(`PORT ${PORT} was busy; backend is available on ${port}`);
-      }
-
+connectDB()
+  .then(() => {
+    server.listen(PORT, () => {
+      console.log(`PatientTriage API listening on ${PORT}`);
       const interval = Math.max(5000, Number(process.env.TRIAGE_INTERVAL_MS || 30000));
       setInterval(() => {
         runQueueTick({ io }).catch(error => {
@@ -88,13 +70,7 @@ function startServer() {
         });
       }, interval);
     });
-  };
-
-  tryListen(PORT);
-}
-
-connectDB()
-  .then(startServer)
+  })
   .catch(error => {
     console.error('Startup failed:', error.message);
     process.exit(1);
