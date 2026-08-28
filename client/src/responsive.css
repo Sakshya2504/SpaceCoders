@@ -1,0 +1,349 @@
+/*
+ * Responsive layout rules for PatientTriage.ai.
+ *
+ * The desktop layout stays unchanged. These rules progressively simplify the
+ * navigation, grids, tables and forms so the same workflow remains usable on
+ * tablets and phones without horizontal scrolling.
+ */
+
+/* Medium desktops and tablets: give content more room by reducing grid columns. */
+@media (max-width: 1180px) {
+  .kpi-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .dashboard-grid,
+  .bottom-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .form-grid.four {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .page-content {
+    padding-left: 22px;
+    padding-right: 22px;
+  }
+}
+
+/* Tablet navigation: keep the sidebar visible but make it narrower. */
+@media (max-width: 900px) {
+  .sidebar {
+    width: 82px;
+    padding: 16px 9px;
+  }
+
+  .brand {
+    justify-content: center;
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  .brand > div:last-child,
+  .nav-caption,
+  .nav-link span,
+  .demo-badge,
+  .user-mini-copy {
+    display: none;
+  }
+
+  .sidebar-nav {
+    align-items: center;
+  }
+
+  .nav-link {
+    width: 54px;
+    justify-content: center;
+    padding: 12px 8px;
+  }
+
+  .user-mini {
+    justify-content: center;
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  .topbar {
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+
+  .health-pill {
+    display: none;
+  }
+
+  .operations-hero,
+  .hero-small,
+  .patient-header {
+    align-items: flex-start;
+  }
+
+  .operations-hero {
+    flex-direction: column;
+  }
+
+  .hero-actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .hero-actions .secondary-button {
+    flex: 0 0 auto;
+  }
+
+  .action-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Phones: turn the left rail into a compact horizontal navigation bar. */
+@media (max-width: 640px) {
+  .app-shell {
+    display: block;
+  }
+
+  .sidebar {
+    width: 100%;
+    height: auto;
+    min-height: 0;
+    position: sticky;
+    top: 0;
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 10px;
+    overflow-x: auto;
+    z-index: 20;
+  }
+
+  .brand {
+    flex: 0 0 auto;
+    padding: 0;
+  }
+
+  .brand-mark {
+    width: 36px;
+    height: 36px;
+  }
+
+  .sidebar-nav {
+    flex-direction: row;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .nav-link {
+    width: auto;
+    flex: 0 0 auto;
+    gap: 7px;
+    padding: 9px 10px;
+  }
+
+  .nav-link span {
+    display: inline;
+    font-size: 10px;
+  }
+
+  .sidebar-bottom {
+    display: none;
+  }
+
+  .main-area {
+    width: 100%;
+  }
+
+  .topbar {
+    min-height: 68px;
+    height: auto;
+    padding: 12px 14px;
+  }
+
+  .topbar h1 {
+    font-size: 17px;
+  }
+
+  .topbar-actions {
+    gap: 6px;
+  }
+
+  .user-chip {
+    min-width: 0;
+    max-width: 120px;
+  }
+
+  .user-chip span,
+  .user-chip small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .page-content {
+    padding: 16px 12px 28px;
+  }
+
+  .operations-hero,
+  .hero-small,
+  .patient-header {
+    padding: 18px;
+    border-radius: 15px;
+  }
+
+  .operations-hero h2,
+  .hero-small h2 {
+    font-size: 21px;
+  }
+
+  .operations-hero p,
+  .hero-small p {
+    font-size: 10px;
+  }
+
+  .hero-actions {
+    align-items: stretch;
+  }
+
+  .hero-actions .mode-pill,
+  .hero-actions .secondary-button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .kpi-card {
+    min-height: 78px;
+    padding: 11px;
+  }
+
+  .kpi-icon {
+    width: 32px;
+    height: 32px;
+  }
+
+  .kpi-copy strong {
+    font-size: 17px;
+  }
+
+  .panel {
+    padding: 15px;
+    border-radius: 14px;
+  }
+
+  .dashboard-grid,
+  .bottom-grid {
+    gap: 10px;
+    margin-top: 10px;
+  }
+
+  .form-grid.three,
+  .form-grid.four,
+  .form-grid.two {
+    grid-template-columns: 1fr;
+  }
+
+  .section-heading {
+    gap: 8px;
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .form-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .form-actions .primary-button,
+  .form-actions .secondary-button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .derived-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .table-panel {
+    padding: 0;
+  }
+
+  .table-scroll {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  table {
+    min-width: 760px;
+  }
+
+  .table-panel .empty-state {
+    padding: 20px;
+  }
+
+  .alert-panel {
+    position: fixed;
+    right: 8px;
+    left: 8px;
+    top: 66px;
+    width: auto;
+  }
+
+  .alert-toast {
+    right: 10px;
+    left: 10px;
+    top: 76px;
+    width: auto;
+  }
+
+  .auth-page {
+    min-height: 100dvh;
+  }
+
+  .auth-visual {
+    display: none;
+  }
+
+  .auth-panel {
+    width: 100%;
+    min-height: 100dvh;
+    padding: 22px 16px;
+  }
+
+  .auth-form-wrap,
+  .auth-form-wrap.wide {
+    width: 100%;
+    max-width: 480px;
+  }
+}
+
+/* Very small phones: avoid squeezed KPI labels and keep controls touch friendly. */
+@media (max-width: 400px) {
+  .kpi-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .kpi-card {
+    min-height: 72px;
+  }
+
+  .nav-link span {
+    display: none;
+  }
+
+  .nav-link {
+    width: 42px;
+    justify-content: center;
+  }
+
+  .user-chip {
+    display: none;
+  }
+
+  .derived-summary {
+    grid-template-columns: 1fr;
+  }
+}
