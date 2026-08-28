@@ -1,21 +1,83 @@
 # XGBoost Triage-Acuity Pipeline
 
-This folder contains the machine-learning pipeline for the Round 2 prototype. The attached reference dataset contains 80,000 rows and 40 columns, with `triage_acuity` as the 5-class target (ESI 1–5).
+This folder contains the reproducible machine-learning pipeline used to explore `triage_acuity` prediction from the attached reference dataset.
 
-## Why XGBoost
+## Reference dataset
 
-XGBoost was selected for the prototype because the data mixes numeric bedside measurements with categorical operational/context fields, contains missing values, and includes nonlinear clinical relationships. The model is wrapped in a scikit-learn `Pipeline` so preprocessing and inference stay coupled.
+`train.csv` contains 80,000 rows and 40 columns.
+
+The target is:
+
+```text
+triage_acuity
+```
+
+with classes 1–5.
+
+### Full dataset schema
+
+```text
+patient_id
+site_id
+triage_nurse_id
+arrival_mode
+arrival_hour
+arrival_day
+arrival_month
+arrival_season
+shift
+age
+age_group
+sex
+language
+insurance_type
+transport_origin
+pain_location
+mental_status_triage
+chief_complaint_system
+num_prior_ed_visits_12m
+num_prior_admissions_12m
+num_active_medications
+num_comorbidities
+systolic_bp
+diastolic_bp
+mean_arterial_pressure
+pulse_pressure
+heart_rate
+respiratory_rate
+temperature_c
+spo2
+gcs_total
+pain_score
+weight_kg
+height_cm
+bmi
+shock_index
+news2_score
+disposition
+ed_los_hours
+triage_acuity
+```
 
 ## Leakage control
 
-The training pipeline removes:
+The model excludes four columns:
 
 - `patient_id` — unique identifier.
-- `disposition` — downstream outcome after the triage decision.
-- `ed_los_hours` — downstream outcome that can leak post-triage information.
-- `triage_acuity` — target itself.
+- `disposition` — post-triage outcome.
+- `ed_los_hours` — post-triage outcome.
+- `triage_acuity` — target.
 
-Missing numeric values use median imputation. Missing categorical values use most-frequent imputation. Categorical variables are one-hot encoded with `handle_unknown='ignore'`.
+The remaining columns are model inputs.
+
+## Why XGBoost
+
+XGBoost is a practical fit for this prototype because the data combines numeric and categorical features, contains missing clinical measurements, and can contain nonlinear relationships. The model is wrapped in a scikit-learn `Pipeline` so preprocessing and inference stay together.
+
+## Preprocessing
+
+Numeric columns use median imputation.
+Categorical columns use most-frequent imputation and one-hot encoding with unknown-category handling.
 
 ## Model configuration
 
@@ -26,18 +88,18 @@ Missing numeric values use median imputation. Missing categorical values use mos
 - Learning rate: 0.08
 - Subsample: 0.85
 - Column sampling: 0.85
-- Regularization: L2 (`reg_lambda=2`)
+- L2 regularization: 2.0
 - Tree method: histogram
 - Random state: 42
 
-## Reproduce the training run
+## Reproduce
 
 ```bash
 pip install -r ml/requirements.txt
 python ml/train_xgboost.py --data path/to/train.csv
 ```
 
-The command creates `ml/artifacts/` locally with:
+Artifacts are written to `ml/artifacts/`:
 
 ```text
 triage_xgb_pipeline.joblib
@@ -46,11 +108,28 @@ confusion_matrix.csv
 feature_importance.csv
 ```
 
-The trained binary model is intentionally generated locally instead of committed to source control.
+The trained binary artifact is intentionally not committed to source control.
 
-## Result on the attached `train.csv`
+## Dataset-aligned frontend contract
 
-Using an 80/20 stratified split (64,000 train / 16,000 test), the trained XGBoost pipeline achieved:
+The Patient Intake page stores `modelFeatures` with the same names as the training columns. The application generates `patient_id` and derives time context and arithmetic features such as:
+
+- `arrival_hour`
+- `arrival_day`
+- `arrival_month`
+- `arrival_season`
+- `shift`
+- `age_group`
+- `mean_arterial_pressure`
+- `pulse_pressure`
+- `bmi`
+- `shock_index`
+
+This avoids asking an operator to manually calculate values that can be derived from entered measurements.
+
+## Prototype result
+
+Using an 80/20 stratified split (64,000 train / 16,000 test), the recorded run achieved:
 
 | Metric | Result |
 |---|---:|
@@ -59,16 +138,8 @@ Using an 80/20 stratified split (64,000 train / 16,000 test), the trained XGBoos
 | Macro F1 | 86.95% |
 | Weighted F1 | 85.31% |
 
-Per-class F1:
+These are dataset-level prototype metrics, not clinical validation.
 
-| Class | F1 |
-|---|---:|
-| ESI 1 | 94.47% |
-| ESI 2 | 97.27% |
-| ESI 3 | 88.67% |
-| ESI 4 | 76.55% |
-| ESI 5 | 77.77% |
+## Safety note
 
-The strongest global model features in this run were `news2_score`, `gcs_total`, `pain_score`, mental-status indicators, `spo2`, prior ED visits, temperature, respiratory rate, and heart rate.
-
-These metrics are dataset-level prototype results, not clinical validation. The model should remain decision support with explicit clinician override/fail-open behavior.
+The model is decision support only. Clinical thresholds, labels and recommendations require clinical validation before any real-world use.
