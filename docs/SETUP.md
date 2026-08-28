@@ -1,25 +1,44 @@
 # Local Setup Guide
 
-This guide explains how to run PatientTriage.ai locally on Windows PowerShell and how the application components communicate.
+PatientTriage.ai is a local development prototype composed of three application processes plus MongoDB:
+
+```text
+Browser
+  │
+  ├── Frontend: React + Vite → http://localhost:5173
+  │
+  └── REST / Socket.IO → Node + Express → http://localhost:3000
+                                      │
+                                      └── MongoDB → localhost:27017
+
+Optional ML process:
+Python + FastAPI + XGBoost → http://127.0.0.1:8000
+```
+
+The ML service is used for model-backed inference when available. The Node application retains a deterministic prototype fallback so an unavailable Python process does not block the workflow.
 
 ## 1. Prerequisites
 
-Install:
+Install the following locally:
 
 ```text
 Node.js 20+ recommended
 npm
-MongoDB
-Python 3.10+ recommended for XGBoost inference
+MongoDB Community Server or another local MongoDB instance
+Python 3.10+ recommended for model training/inference
+Git
 ```
 
-Confirm versions:
+Verify the installations:
 
 ```powershell
 node --version
 npm --version
 python --version
+git --version
 ```
+
+MongoDB must be running before the seed command or backend can use the database.
 
 ## 2. Clone the repository
 
@@ -28,36 +47,26 @@ git clone https://github.com/Sakshya2504/SpaceCoders.git
 cd SpaceCoders
 ```
 
-## 3. Install Node dependencies
+## 3. Install JavaScript dependencies
 
-From the project root:
+From the repository root:
 
 ```powershell
 npm install
 npm run install:all
 ```
 
-The root `package.json` starts the client and server with `concurrently`.
+The root scripts install the server and client dependencies separately and use `concurrently` for the full development command.
 
-## 4. Start MongoDB
+## 4. Configure the Node backend
 
-The local development configuration expects:
-
-```text
-mongodb://127.0.0.1:27017/patienttriage
-```
-
-Make sure the MongoDB service is running before seeding or starting the backend.
-
-## 5. Configure the backend
-
-Create:
+Create this file:
 
 ```text
 server/.env
 ```
 
-Copy the values from `server/.env.example` and use:
+Recommended local values:
 
 ```env
 PORT=3000
@@ -69,49 +78,56 @@ MANUAL_MODE=false
 ML_INFERENCE_URL=http://127.0.0.1:8000
 ```
 
-Do not commit the `.env` file.
+`.env` is intentionally ignored by Git. Never commit real credentials or production secrets.
 
-## 6. Seed synthetic demo data
+## 5. Seed synthetic data
 
-From the root:
+Make sure MongoDB is running, then execute:
 
 ```powershell
 npm run seed
 ```
 
-The seed command clears the demo users, patients and audit records and recreates a repeatable synthetic dataset.
+The seed operation recreates the demo collections used by the prototype. It creates four demo users and eighteen synthetic patients with triage assessments, queue state and audit events.
 
-Expected demo accounts:
+Default demo credentials:
 
 ```text
+Charge nurse
 charge@patienttriage.demo
+Password: demo123
+
+Triage nurse
 nurse@patienttriage.demo
+Password: demo123
+
+Clinical admin
 admin@patienttriage.demo
+Password: demo123
+
+System admin
 system@patienttriage.demo
+Password: demo123
 ```
 
-Password:
+## 6. Start the MERN application
 
-```text
-demo123
-```
+### Option A — start frontend and backend together
 
-## 7. Run the MERN application
-
-### Option A — one command
+From the root:
 
 ```powershell
 npm run dev
 ```
 
-This starts:
+Expected endpoints:
 
 ```text
-Frontend → http://localhost:5173
-Backend  → http://localhost:3000
+Frontend  http://localhost:5173
+Backend   http://localhost:3000
 ```
 
-### Option B — separate terminals
+### Option B — start the processes separately
 
 Backend terminal:
 
@@ -127,50 +143,70 @@ cd client
 npm run dev
 ```
 
-## 8. Run the XGBoost inference service
+## 7. Train the XGBoost model
 
-The model service is optional for basic application startup but is required for the complete model-backed demonstration.
+Place the supplied reference dataset at:
 
-Install dependencies:
+```text
+train.csv
+```
+
+from the repository root, or provide another path explicitly.
+
+Install model dependencies:
 
 ```powershell
 python -m pip install -r ml/requirements.txt
 python -m pip install -r ml/requirements-inference.txt
 ```
 
-Train the local model from the supplied dataset:
+Train:
 
 ```powershell
 python ml/train_xgboost.py --data train.csv
 ```
 
-This generates:
+The training pipeline performs preprocessing and writes the persisted model to:
 
 ```text
 ml/artifacts/triage_xgb_pipeline.joblib
 ```
 
-Start FastAPI:
+The binary model is ignored by Git because it is generated from the local training data.
+
+## 8. Start XGBoost inference
+
+Run from the repository root:
 
 ```powershell
 uvicorn ml.inference_service:app --host 127.0.0.1 --port 8000
 ```
 
-Check:
+Verify:
 
 ```text
 http://127.0.0.1:8000/health
 ```
 
-## 9. Complete startup order
+A healthy response includes:
 
-For an end-to-end demonstration, use three terminals:
+```json
+{
+  "ok": true,
+  "model": "XGBoost",
+  "modelVersion": "xgboost-multiclass-v1"
+}
+```
+
+## 9. Recommended end-to-end startup
+
+Use three terminals.
 
 ### Terminal 1 — MongoDB
 
 Keep the MongoDB service running.
 
-### Terminal 2 — XGBoost service
+### Terminal 2 — XGBoost inference
 
 ```powershell
 cd S:\Accenture_Hackathon\SpaceCoders
@@ -184,7 +220,7 @@ cd S:\Accenture_Hackathon\SpaceCoders
 npm run dev
 ```
 
-Then open:
+Open:
 
 ```text
 http://localhost:5173
@@ -192,55 +228,50 @@ http://localhost:5173
 
 ## 10. Health checks
 
-### Backend
+Backend:
 
 ```text
 http://localhost:3000/api/health
 ```
 
-Expected fields include:
-
-```text
-ok
-service
-aiEngine
-database
-realtime
-```
-
-### ML service
+ML service:
 
 ```text
 http://127.0.0.1:8000/health
 ```
 
-Expected:
-
-```json
-{
-  "ok": true,
-  "model": "XGBoost",
-  "modelVersion": "xgboost-multiclass-v1"
-}
-```
-
-### Frontend
+Frontend:
 
 ```text
 http://localhost:5173
 ```
 
-## 11. Common local problems
+The backend health response reports database status, AI mode and realtime status.
 
-### Port 3000 is already in use
+## 11. Normal application workflow
 
-Find the process:
+1. Sign in.
+2. Open Command Centre.
+3. Open Patient Intake.
+4. Enter a synthetic patient using the dataset-aligned fields.
+5. Submit the patient.
+6. Review the ESI recommendation, confidence, red flags and explanations.
+7. Accept or override the recommendation.
+8. Open Live Queue and use reassessment/surge controls.
+9. Watch the alert center for realtime events.
+10. Open Audit Trail and verify the SHA-256 chain.
+
+## 12. Common errors
+
+### Port 3000 already in use
+
+Find the owning process:
 
 ```powershell
 netstat -ano | findstr :3000
 ```
 
-Stop old Node processes during development if appropriate:
+During local development, old Node processes can be stopped with:
 
 ```powershell
 taskkill /F /IM node.exe
@@ -248,54 +279,48 @@ taskkill /F /IM node.exe
 
 Then restart the backend.
 
+### `EADDRINUSE` still appears
+
+Make sure only one backend instance is running. The application intentionally uses port `3000`; do not switch the port in only one part of the stack.
+
 ### MongoDB connection fails
 
-Confirm MongoDB is running and that `MONGO_URI` points to the local instance.
+Check the MongoDB service and verify `MONGO_URI` in `server/.env`.
 
 ### `dbHealth` import error
 
-Pull the latest repository version. `server/src/config/db.js` exports both `connectDB` and `dbHealth`.
+Pull the latest repository. `server/src/config/db.js` exports both `connectDB` and `dbHealth`.
 
-### Synthetic patient ID gives an ObjectId error
+### `patientCode_1` duplicate-key error
 
-Use the latest `server/src/routes/patients.js`. The route recognizes application IDs such as `PT-2026-LWSBKX` without forcing them through MongoDB ObjectId casting.
+The current database connection removes the legacy unique `patientCode_1` index left by an older schema.
 
-### Duplicate `patientCode: null` error
+### Synthetic patient ID causes ObjectId casting error
 
-The current database configuration removes the legacy `patientCode_1` index during connection when it still exists.
+The patient route accepts both MongoDB `_id` values and application IDs such as `PT-2026-LWSBKX`.
 
-### XGBoost service unavailable
+### ML service is unavailable
 
-The Node application is designed to fall back to the deterministic prototype scorer rather than blocking the workflow. Start the Python service and ensure `ML_INFERENCE_URL` is correct for model-backed inference.
+The Node triage engine records the model outage and uses its deterministic prototype fallback. For model-backed inference, start FastAPI and verify `ML_INFERENCE_URL`.
 
-### Frontend looks stale after pulling
+### Frontend is not using the latest styles
 
-Restart the Vite process and use a hard refresh:
+Stop and restart Vite, then perform:
 
 ```text
 Ctrl + Shift + R
 ```
 
-## 12. Development reset
+## 13. Resetting demo data
 
-To rebuild the synthetic demo state:
+Run:
 
 ```powershell
 npm run seed
 ```
 
-The seed operation is destructive for the configured demo database collections. Do not point it at a production database.
+The seed command is destructive for the configured demo collections. Use it only with the synthetic development database.
 
-## 13. Windows note
+## 14. Production boundary
 
-PowerShell uses:
-
-```powershell
-copy .env.example .env
-```
-
-whereas Command Prompt uses the equivalent Windows copy command. The repository does not require a shell-specific build system beyond the normal npm/Python commands.
-
-## 14. Production note
-
-This setup is intended for local development and demonstrations only. Production deployment requires hardened secrets, TLS, authenticated infrastructure, controlled database access, observability, model governance and formal clinical validation.
+This guide describes a local prototype setup. A production deployment would require secure secret management, TLS, hardened database access, centralized logging, monitoring, model governance, formal clinical validation, privacy controls and operational runbooks.
