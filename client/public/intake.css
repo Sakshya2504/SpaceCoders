@@ -1,0 +1,201 @@
+/*
+ * Intake-specific layout refinements.
+ *
+ * The base design system lives in client/src/index.css. These rules only touch
+ * the intake page, so improving the form cannot accidentally change the queue,
+ * audit or dashboard screens.
+ */
+
+.intake-page {
+  width: 100%;
+  min-width: 0;
+}
+
+.intake-page .hero-small {
+  min-height: 118px;
+  padding: 28px 30px;
+  overflow: hidden;
+}
+
+.intake-page .hero-small > div {
+  min-width: 0;
+}
+
+.intake-page .hero-small > svg {
+  flex: 0 0 auto;
+  color: var(--purple);
+  opacity: 0.75;
+}
+
+.intake-page .info-box {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 12px 0 14px;
+  padding: 11px 13px;
+  background: #f8f9fc;
+  border: 1px solid #e5e9f0;
+  color: #667286;
+  line-height: 1.5;
+}
+
+.intake-page .info-box svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: #7567e9;
+}
+
+.intake-page .form-panel {
+  padding: 24px;
+  overflow: hidden;
+}
+
+.intake-page .section-heading {
+  min-width: 0;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.intake-page .section-heading h3 {
+  min-width: 0;
+}
+
+.intake-page .section-heading .muted {
+  margin-left: auto;
+  text-align: right;
+  line-height: 1.4;
+}
+
+.intake-page .form-grid {
+  width: 100%;
+  min-width: 0;
+}
+
+.intake-page .form-grid > label,
+.intake-page .form-grid > div {
+  min-width: 0;
+}
+
+.intake-page label {
+  min-width: 0;
+}
+
+.intake-page input,
+.intake-page select,
+.intake-page textarea {
+  min-width: 0;
+}
+
+/* Make the grouped fields feel like one coherent data-entry surface. */
+.intake-page .derived-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid #e5e9f0;
+  border-radius: 13px;
+  background: #fafbfe;
+}
+
+.intake-page .derived-summary > div {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 11px 12px;
+  background: #fff;
+  border: 1px solid #e8ebf1;
+  border-radius: 10px;
+}
+
+.intake-page .derived-summary svg {
+  color: #7567e9;
+}
+
+.intake-page .derived-summary span {
+  min-width: 0;
+  color: #7d8797;
+  font-size: 9px;
+  line-height: 1.3;
+}
+
+.intake-page .derived-summary strong {
+  color: #263246;
+  font: 800 13px Manrope, Inter, sans-serif;
+  white-space: nowrap;
+}
+
+/* Add a little visual breathing room around the model-facing feature groups. */
+.intake-page .form-grid.four {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.intake-page .form-grid.three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.intake-page .form-actions {
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.intake-page .form-actions .muted {
+  flex: 1 1 280px;
+  line-height: 1.5;
+}
+
+.intake-page .form-actions .primary-button {
+  flex: 0 0 auto;
+}
+
+@media (max-width: 1180px) {
+  .intake-page .form-grid.four {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .intake-page .derived-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .intake-page .form-panel {
+    padding: 19px;
+  }
+
+  .intake-page .form-grid.three,
+  .intake-page .form-grid.four {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .intake-page .hero-small {
+    padding: 22px;
+  }
+}
+
+@media (max-width: 620px) {
+  .intake-page .form-panel {
+    padding: 15px;
+  }
+
+  .intake-page .form-grid.three,
+  .intake-page .form-grid.four,
+  .intake-page .derived-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .intake-page .section-heading .muted {
+    width: 100%;
+    margin-left: 0;
+    text-align: left;
+  }
+
+  .intake-page .form-actions .primary-button {
+    width: 100%;
+    justify-content: center;
+  }
+}
