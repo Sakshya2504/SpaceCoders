@@ -1,7 +1,428 @@
-import { AlertTriangle, CheckCircle2, ChevronLeft, RefreshCcw } from 'lucide-react';
+import {
+  AlertTriangle,
+  CheckCircle2,
+  ChevronLeft,
+  RefreshCcw
+} from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import api from '../api';
 import Modal from '../components/Modal';
 import { ActionBadge, EsiBadge, FlagBadge } from '../components/Badge';
-export default function PatientDetail(){const{id}=useParams();const[p,setP]=useState(null);const[modal,setModal]=useState(false);const[f,setF]=useState({targetEsi:'',reason:'Clinical judgement',note:''});const load=()=>api.get(`/patients/${id}`).then(r=>setP(r.data.data));useEffect(()=>{load()},[id]);if(!p)return <div className="page-loading">Loading patient…</div>;const t=p.triage||{};const flags=t.redFlags||{};const accept=async()=>{await api.post(`/patients/${id}/accept`);load()};const reassess=async()=>{await api.post(`/patients/${id}/reassess`);load()};const override=async()=>{await api.post(`/patients/${id}/override`,f);setModal(false);load()};return <div><div className="back-row"><Link to="/queue"><ChevronLeft size={16}/> Back to queue</Link><span className="synthetic-tag">SYNTHETIC</span></div><div className="patient-header"><div><div className="eyebrow">PATIENT REVIEW · {p.patientId}</div><h2>{p.firstName} {p.lastName}</h2><p>{p.age} years · {p.sex} · arrived {new Date(p.arrivalTime).toLocaleString()}</p></div><div className="header-esi"><span>Final priority</span><EsiBadge esi={p.finalEsi||t.esi}/></div></div><div className="review-grid-main"><section className={`recommendation ${t.action==='IMMEDIATE_ESCALATION'?'critical':''}`}><div className="rec-top"><div><div className="eyebrow">AI RECOMMENDATION</div><div className="rec-esi"><EsiBadge esi={t.esi}/><ActionBadge action={t.action}/></div></div><div className="confidence"><strong>{t.confidence||0}%</strong><span>{t.confidenceBand} CONFIDENCE</span></div></div><div className="rec-reason"><AlertTriangle size={17}/><div><strong>Why this recommendation?</strong>{(t.reasons||[]).map(x=><p key={x}>{x}</p>)}</div></div><div className="explain-row"><div><span>Age band</span><strong>{t.ageBand}</strong></div><div><span>Completeness</span><strong>{t.dataCompleteness}%</strong></div><div><span>History</span><strong>{t.hasHistory?'Available':'Zero-history'}</strong></div><div><span>Model</span><strong>{t.modelVersion}</strong></div></div></section><section className="panel"><div className="panel-head"><div><h3>Parallel red flags</h3><p>Independent prototype detectors</p></div></div><div className="flags-grid">{[['sepsis','Sepsis'],['mi','MI'],['stroke','Stroke'],['respiratoryFailure','Respiratory Failure']].map(([k,l])=><div className={`flag-card ${flags[k]?.positive?'positive':''}`} key={k}><FlagBadge positive={flags[k]?.positive} label={l}/><strong>{flags[k]?.score||0}</strong><p>{flags[k]?.reasons?.[0]||'No trigger detected.'}</p></div>)}</div></section></div><div className="content-grid two-col"><section className="panel"><div className="panel-head"><div><h3>Clinical context</h3><p>Complaint signals and current vitals</p></div></div><p className="muted">“{p.chiefComplaint}”</p><div className="signal-chips">{(p.extractedSymptoms||[]).map(x=><span key={x}>{x}</span>)}</div><div className="vitals-grid">{Object.entries(p.vitals||{}).map(([k,v])=><div key={k}><span>{k}</span><strong>{v}</strong></div>)}</div></section><section className="panel"><div className="panel-head"><div><h3>Feature contributions</h3><p>Prototype explanation layer</p></div></div>{(t.featureContributions||[]).map((c,i)=><div className="contrib-item" key={i}><div><strong>{c.feature}</strong><small>{String(c.value)}</small></div><span className="up">+{Math.round(c.impact||0)}</span></div>)}</section></div><section className="panel action-panel"><div><strong>Human-in-the-loop decision</strong><p className="muted">AI is advisory. Clinician acceptance or override is recorded.</p><div className="action-buttons"><button className="primary-button" onClick={accept}><CheckCircle2 size={15}/> Accept</button><button className="warning-button" onClick={()=>setModal(true)}>Override</button><button className="secondary-button" onClick={reassess}><RefreshCcw size={15}/> Reassess</button></div></div></section><Modal open={modal} title="Override AI recommendation" onClose={()=>setModal(false)}><div className="form-stack"><label>Target ESI<select value={f.targetEsi} onChange={e=>setF({...f,targetEsi:e.target.value})}><option value="">Select</option>{[1,2,3,4,5].map(n=><option key={n}>{n}</option>)}</select></label><label>Reason<select value={f.reason} onChange={e=>setF({...f,reason:e.target.value})}><option>Clinical judgement</option><option>Additional history</option><option>New vital signs</option><option>Patient distress not captured</option><option>Other</option></select></label><label>Note<textarea value={f.note} onChange={e=>setF({...f,note:e.target.value})}/></label><button className="primary-button" onClick={override}>Confirm override</button></div></Modal></div>}
+
+/*
+ * Patient Review is where the clinician sees the model recommendation and
+ * records the final human decision. Each action talks to the backend and gives
+ * immediate UI feedback so a slow or unavailable model never looks like a
+ * broken button.
+ */
+export default function PatientDetail() {
+  const { id } = useParams();
+
+  const [patient, setPatient] = useState(null);
+  const [isOverrideOpen, setIsOverrideOpen] = useState(false);
+  const [busyAction, setBusyAction] = useState('');
+  const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
+  const [overrideForm, setOverrideForm] = useState({
+    targetEsi: '',
+    reason: 'Clinical judgement',
+    note: ''
+  });
+
+  const loadPatient = async () => {
+    const response = await api.get(`/patients/${id}`);
+    setPatient(response.data.data);
+  };
+
+  useEffect(() => {
+    loadPatient().catch(requestError => {
+      setError(
+        requestError.response?.data?.message ||
+          'Unable to load this patient record.'
+      );
+    });
+  }, [id]);
+
+  const runAction = async (actionName, request, successMessage) => {
+    setBusyAction(actionName);
+    setError('');
+    setMessage('');
+
+    try {
+      const response = await request();
+
+      // Always refresh the record after a decision action so the displayed ESI,
+      // audit state and queue status match what was saved by the server.
+      setPatient(response.data?.data || patient);
+      await loadPatient();
+      setMessage(successMessage);
+    } catch (requestError) {
+      setError(
+        requestError.response?.data?.message ||
+          `${actionName} failed. Please try again.`
+      );
+    } finally {
+      setBusyAction('');
+    }
+  };
+
+  const acceptRecommendation = () =>
+    runAction(
+      'accept',
+      () => api.post(`/patients/${id}/accept`),
+      'Recommendation accepted and recorded.'
+    );
+
+  const reassessPatient = () =>
+    runAction(
+      'reassess',
+      () => api.post(`/patients/${id}/reassess`),
+      'Patient reassessed successfully.'
+    );
+
+  const confirmOverride = async () => {
+    if (!overrideForm.targetEsi) {
+      setError('Select a target ESI before confirming the override.');
+      return;
+    }
+
+    setBusyAction('override');
+    setError('');
+    setMessage('');
+
+    try {
+      const response = await api.post(
+        `/patients/${id}/override`,
+        overrideForm
+      );
+
+      setPatient(response.data.data);
+      await loadPatient();
+      setIsOverrideOpen(false);
+      setOverrideForm({
+        targetEsi: '',
+        reason: 'Clinical judgement',
+        note: ''
+      });
+      setMessage('Clinician override recorded.');
+    } catch (requestError) {
+      setError(
+        requestError.response?.data?.message ||
+          'Unable to record the override.'
+      );
+    } finally {
+      setBusyAction('');
+    }
+  };
+
+  if (!patient) {
+    return <div className="page-loading">Loading patient…</div>;
+  }
+
+  const triage = patient.triage || {};
+  const flags = triage.redFlags || {};
+
+  return (
+    <div className="patient-detail-page">
+      <div className="back-row">
+        <Link to="/queue">
+          <ChevronLeft size={16} />
+          Back to queue
+        </Link>
+        <span className="synthetic-tag">SYNTHETIC</span>
+      </div>
+
+      {error && (
+        <div className="error-banner" role="alert">
+          {error}
+        </div>
+      )}
+
+      {message && (
+        <div className="success-banner" role="status">
+          <CheckCircle2 size={15} />
+          {message}
+        </div>
+      )}
+
+      <div className="patient-header">
+        <div>
+          <div className="eyebrow">PATIENT REVIEW · {patient.patientId}</div>
+          <h2>
+            {patient.firstName} {patient.lastName}
+          </h2>
+          <p>
+            {patient.age} years · {patient.sex} · arrived{' '}
+            {new Date(patient.arrivalTime).toLocaleString()}
+          </p>
+        </div>
+
+        <div className="header-esi">
+          <span>Final priority</span>
+          <EsiBadge esi={patient.finalEsi || triage.esi} />
+        </div>
+      </div>
+
+      <div className="review-grid-main">
+        <section
+          className={`recommendation ${
+            triage.action === 'IMMEDIATE_ESCALATION' ? 'critical' : ''
+          }`}
+        >
+          <div className="rec-top">
+            <div>
+              <div className="eyebrow">AI RECOMMENDATION</div>
+
+              <div className="rec-esi">
+                <EsiBadge esi={triage.esi} />
+                <ActionBadge action={triage.action} />
+              </div>
+            </div>
+
+            <div className="confidence">
+              <strong>{triage.confidence || 0}%</strong>
+              <span>{triage.confidenceBand} CONFIDENCE</span>
+            </div>
+          </div>
+
+          <div className="rec-reason">
+            <AlertTriangle size={17} />
+            <div>
+              <strong>Why this recommendation?</strong>
+              {(triage.reasons || []).map(reason => (
+                <p key={reason}>{reason}</p>
+              ))}
+            </div>
+          </div>
+
+          <div className="explain-row">
+            <div>
+              <span>Age band</span>
+              <strong>{triage.ageBand || '—'}</strong>
+            </div>
+            <div>
+              <span>Completeness</span>
+              <strong>{triage.dataCompleteness || 0}%</strong>
+            </div>
+            <div>
+              <span>History</span>
+              <strong>
+                {triage.hasHistory ? 'Available' : 'Zero-history'}
+              </strong>
+            </div>
+            <div>
+              <span>Model</span>
+              <strong>{triage.modelVersion || 'Fallback scorer'}</strong>
+            </div>
+          </div>
+        </section>
+
+        <section className="panel">
+          <div className="panel-head">
+            <div>
+              <h3>Parallel red flags</h3>
+              <p>Independent prototype detectors</p>
+            </div>
+          </div>
+
+          <div className="flags-grid">
+            {[
+              ['sepsis', 'Sepsis'],
+              ['mi', 'MI'],
+              ['stroke', 'Stroke'],
+              ['respiratoryFailure', 'Respiratory Failure']
+            ].map(([key, label]) => (
+              <div
+                className={`flag-card ${
+                  flags[key]?.positive ? 'positive' : ''
+                }`}
+                key={key}
+              >
+                <FlagBadge
+                  positive={Boolean(flags[key]?.positive)}
+                  label={label}
+                />
+                <strong>{flags[key]?.score || 0}</strong>
+                <p>
+                  {flags[key]?.reasons?.[0] || 'No trigger detected.'}
+                </p>
+              </div>
+            ))}
+          </div>
+        </section>
+      </div>
+
+      <div className="content-grid two-col">
+        <section className="panel">
+          <div className="panel-head">
+            <div>
+              <h3>Clinical context</h3>
+              <p>Complaint signals and current vitals</p>
+            </div>
+          </div>
+
+          <p className="muted">“{patient.chiefComplaint}”</p>
+
+          <div className="signal-chips">
+            {(patient.extractedSymptoms || []).map(signal => (
+              <span key={signal}>{signal}</span>
+            ))}
+          </div>
+
+          <div className="vitals-grid">
+            {Object.entries(patient.vitals || {}).map(([key, value]) => (
+              <div key={key}>
+                <span>{key}</span>
+                <strong>{value}</strong>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="panel">
+          <div className="panel-head">
+            <div>
+              <h3>Feature contributions</h3>
+              <p>Prototype explanation layer</p>
+            </div>
+          </div>
+
+          {(triage.featureContributions || []).map((contribution, index) => (
+            <div className="contrib-item" key={`${contribution.feature}-${index}`}>
+              <div>
+                <strong>{contribution.feature}</strong>
+                <small>{String(contribution.value)}</small>
+              </div>
+              <span className="up">
+                +{Math.round(contribution.impact || 0)}
+              </span>
+            </div>
+          ))}
+        </section>
+      </div>
+
+      <section className="panel action-panel">
+        <div>
+          <strong>Human-in-the-loop decision</strong>
+          <p className="muted">
+            AI is advisory. Clinician acceptance or override is recorded.
+          </p>
+
+          <div className="action-buttons">
+            <button
+              type="button"
+              className="primary-button"
+              onClick={acceptRecommendation}
+              disabled={Boolean(busyAction)}
+            >
+              <CheckCircle2 size={15} />
+              {busyAction === 'accept' ? 'Accepting…' : 'Accept'}
+            </button>
+
+            <button
+              type="button"
+              className="warning-button"
+              onClick={() => {
+                setError('');
+                setMessage('');
+                setIsOverrideOpen(true);
+              }}
+              disabled={Boolean(busyAction)}
+            >
+              Override
+            </button>
+
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={reassessPatient}
+              disabled={Boolean(busyAction)}
+            >
+              <RefreshCcw
+                size={15}
+                className={busyAction === 'reassess' ? 'spin' : ''}
+              />
+              {busyAction === 'reassess' ? 'Reassessing…' : 'Reassess'}
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <Modal
+        open={isOverrideOpen}
+        title="Override AI recommendation"
+        onClose={() => {
+          if (!busyAction) setIsOverrideOpen(false);
+        }}
+      >
+        <div className="form-stack">
+          <label>
+            Target ESI
+            <select
+              value={overrideForm.targetEsi}
+              onChange={event =>
+                setOverrideForm(current => ({
+                  ...current,
+                  targetEsi: event.target.value
+                }))
+              }
+            >
+              <option value="">Select</option>
+              {[1, 2, 3, 4, 5].map(value => (
+                <option key={value} value={value}>
+                  ESI {value}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label>
+            Reason
+            <select
+              value={overrideForm.reason}
+              onChange={event =>
+                setOverrideForm(current => ({
+                  ...current,
+                  reason: event.target.value
+                }))
+              }
+            >
+              <option>Clinical judgement</option>
+              <option>Additional history</option>
+              <option>New vital signs</option>
+              <option>Patient distress not captured</option>
+              <option>Other</option>
+            </select>
+          </label>
+
+          <label>
+            Note
+            <textarea
+              rows="4"
+              value={overrideForm.note}
+              onChange={event =>
+                setOverrideForm(current => ({
+                  ...current,
+                  note: event.target.value
+                }))
+              }
+              placeholder="Add context for the override…"
+            />
+          </label>
+
+          <button
+            type="button"
+            className="primary-button"
+            onClick={confirmOverride}
+            disabled={busyAction === 'override'}
+          >
+            {busyAction === 'override'
+              ? 'Recording override…'
+              : 'Confirm override'}
+          </button>
+        </div>
+      </Modal>
+    </div>
+  );
+}
