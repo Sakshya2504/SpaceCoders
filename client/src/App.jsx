@@ -1,1 +1,67 @@
-import React,{useEffect,useState}from"react";import{Routes,Route,Navigate,useLocation,useNavigate}from"react-router-dom";import{Activity,FileClock,LayoutDashboard,LogOut,Menu,ShieldAlert,UserRound,ClipboardList,PlusCircle}from"lucide-react";import{socketUrl}from"./api";import{io}from"socket.io-client";import Login from"./pages/Login.jsx";import Dashboard from"./pages/Dashboard.jsx";import Intake from"./pages/Intake.jsx";import Queue from"./pages/Queue.jsx";import PatientDetail from"./pages/PatientDetail.jsx";import Audit from"./pages/Audit.jsx";import Sidebar from"./components/Sidebar.jsx";function Shell({user,setUser}){const[live,setLive]=useState(false),[surge,setSurge]=useState(false),[collapsed,setCollapsed]=useState(false),location=useLocation(),navigate=useNavigate();useEffect(()=>{const socket=io(socketUrl,{transports:["websocket"]});socket.on("connect",()=>setLive(true));socket.on("disconnect",()=>setLive(false));return()=>socket.disconnect()},[]);const logout=()=>{localStorage.clear();setUser(null);navigate("/login")};return <div className="app-shell"><Sidebar collapsed={collapsed} surge={surge} onToggle={()=>setCollapsed(!collapsed)}/><main className="main"><header className="topbar"><button className="icon-btn mobile-menu" onClick={()=>setCollapsed(!collapsed)}><Menu size={20}/></button><div><div className="eyebrow">EMERGENCY DEPARTMENT • ROUND 2 PROTOTYPE</div><div className="page-title">{location.pathname==="/"?"Clinical command centre":location.pathname.slice(1).replace("-"," ")}</div></div><div className="top-actions"><span className={`live ${live?"on":""}`}><span/> {live?"Realtime":"Offline"}</span><button className={`surge-toggle ${surge?"active":""}`} onClick={()=>setSurge(!surge)}><ShieldAlert size={15}/> {surge?"Surge mode ON":"Surge mode"}</button><span className="user-chip"><UserRound size={15}/> {user.name.split(" — ")[0]}</span><button className="icon-btn" onClick={logout}><LogOut size={17}/></button></div></header><div className="content"><Routes><Route path="/" element={<Dashboard surge={surge}/>}/><Route path="/intake" element={<Intake/>}/><Route path="/queue" element={<Queue surge={surge}/>}/><Route path="/patients/:id" element={<PatientDetail/>}/><Route path="/audit" element={<Audit/>}/><Route path="*" element={<Navigate to="/"/>}/></Routes></div><footer className="disclaimer">Synthetic data only • Decision support prototype • Nurse retains final triage authority</footer></main></div>}export default function App(){const[user,setUser]=useState(()=>JSON.parse(localStorage.getItem("pt_user")||"null"));if(!user)return <Routes><Route path="/login" element={<Login onLogin={setUser}/>}/><Route path="*" element={<Navigate to="/login"/>}/></Routes>;return <Shell user={user} setUser={setUser}/>}
+import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { socket } from './socket';
+import Sidebar from './components/Sidebar';
+import TopBar from './components/TopBar';
+import Login from './pages/Login';
+import Dashboard from './pages/Dashboard';
+import Intake from './pages/Intake';
+import Queue from './pages/Queue';
+import PatientDetail from './pages/PatientDetail';
+import Audit from './pages/Audit';
+
+function Protected({ children }) {
+  return localStorage.getItem('pt_token') ? children : <Navigate to="/login" replace />;
+}
+
+function Shell() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [health, setHealth] = useState({ aiEngine: 'ONLINE', database: 'ONLINE', realtime: 'DISCONNECTED' });
+  const user = JSON.parse(localStorage.getItem('pt_user') || 'null');
+
+  useEffect(() => {
+    socket.connect();
+    const onHealth = (value) => setHealth((old) => ({ ...old, ...value, realtime: 'CONNECTED' }));
+    const onConnect = () => setHealth((old) => ({ ...old, realtime: 'CONNECTED' }));
+    const onDisconnect = () => setHealth((old) => ({ ...old, realtime: 'DISCONNECTED' }));
+    socket.on('system:health', onHealth);
+    socket.on('connect', onConnect);
+    socket.on('disconnect', onDisconnect);
+    return () => {
+      socket.off('system:health', onHealth);
+      socket.off('connect', onConnect);
+      socket.off('disconnect', onDisconnect);
+      socket.disconnect();
+    };
+  }, []);
+
+  const title = location.pathname.startsWith('/patients') ? 'Patient Review'
+    : location.pathname === '/intake' ? 'Patient Intake'
+    : location.pathname === '/queue' ? 'Live Queue'
+    : location.pathname === '/audit' ? 'Audit Trail'
+    : 'ED Command Centre';
+
+  const logout = () => { localStorage.clear(); socket.disconnect(); navigate('/login'); };
+
+  return <div className="app-shell">
+    <Sidebar user={user} />
+    <main className="main-area">
+      <TopBar title={title} health={health} user={user} onLogout={logout} />
+      <div className="page-content">
+        <Routes>
+          <Route path="/dashboard" element={<Dashboard health={health} />} />
+          <Route path="/intake" element={<Intake />} />
+          <Route path="/queue" element={<Queue />} />
+          <Route path="/patients/:id" element={<PatientDetail />} />
+          <Route path="/audit" element={<Audit />} />
+          <Route path="*" element={<Navigate to="/dashboard" replace />} />
+        </Routes>
+      </div>
+    </main>
+  </div>;
+}
+
+export default function App() {
+  return <Routes><Route path="/login" element={<Login />} /><Route path="*" element={<Protected><Shell /></Protected>} /></Routes>;
+}
