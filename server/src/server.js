@@ -14,23 +14,88 @@ import queueRoutes from './routes/queue.js';
 import { runQueueTick } from './services/queueMonitor.js';
 import { notFound, errorHandler } from './middleware/error.js';
 
-const app=express();
-const server=http.createServer(app);
-const origin=process.env.CLIENT_URL||'http://localhost:5173';
-const io=new Server(server,{cors:{origin,credentials:true}});
-app.set('io',io);
-app.use(cors({origin,credentials:true}));
-app.use(express.json({limit:'1mb'}));
+const app = express();
+const server = http.createServer(app);
+const origin = process.env.CLIENT_URL || 'http://localhost:5173';
+const io = new Server(server, { cors: { origin, credentials: true } });
+
+app.set('io', io);
+app.use(cors({ origin, credentials: true }));
+app.use(express.json({ limit: '1mb' }));
 app.use(morgan('dev'));
-app.use(rateLimit({windowMs:60000,max:240,standardHeaders:true,legacyHeaders:false}));
-app.get('/api/health',(req,res)=>res.json({success:true,data:{ok:dbHealth()==='ONLINE',service:'PatientTriage.ai',mode:'prototype',aiEngine:process.env.MANUAL_MODE==='true'?'FAIL-OPEN':'ONLINE',database:dbHealth(),realtime:'CONNECTED'},message:'Health status',error:null}));
-app.use('/api/auth',authRoutes);
-app.use('/api/patients',patientRoutes);
-app.use('/api/audit',auditRoutes);
-app.use('/api/dashboard',dashboardRoutes);
-app.use('/api/queue',queueRoutes);
+app.use(rateLimit({ windowMs: 60000, max: 240, standardHeaders: true, legacyHeaders: false }));
+
+app.get('/api/health', (req, res) => {
+  res.json({
+    success: true,
+    data: {
+      ok: dbHealth() === 'ONLINE',
+      service: 'PatientTriage.ai',
+      mode: 'prototype',
+      aiEngine: process.env.MANUAL_MODE === 'true' ? 'FAIL-OPEN' : 'ONLINE',
+      database: dbHealth(),
+      realtime: 'CONNECTED'
+    },
+    message: 'Health status',
+    error: null
+  });
+});
+
+app.use('/api/auth', authRoutes);
+app.use('/api/patients', patientRoutes);
+app.use('/api/audit', auditRoutes);
+app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/queue', queueRoutes);
 app.use(notFound);
 app.use(errorHandler);
-io.on('connection',socket=>socket.emit('system:health',{aiEngine:process.env.MANUAL_MODE==='true'?'FAIL-OPEN':'ONLINE',database:dbHealth(),realtime:'CONNECTED'}));
-const PORT=Number(process.env.PORT||5000);
-connectDB().then(()=>{server.listen(PORT,()=>console.log(`PatientTriage API listening on ${PORT}`));const interval=Math.max(5000,Number(process.env.TRIAGE_INTERVAL_MS||30000));setInterval(()=>runQueueTick({io}).catch(e=>console.error('Queue monitor:',e.message)),interval);}).catch(e=>{console.error('Startup failed:',e.message);process.exit(1);});
+
+io.on('connection', socket => {
+  socket.emit('system:health', {
+    aiEngine: process.env.MANUAL_MODE === 'true' ? 'FAIL-OPEN' : 'ONLINE',
+    database: dbHealth(),
+    realtime: 'CONNECTED'
+  });
+});
+
+const PORT = Number(process.env.PORT || 5000);
+
+function startServer() {
+  const tryListen = port => {
+    const onError = error => {
+      if (error.code === 'EADDRINUSE') {
+        const fallback = port + 1;
+        console.warn(`Port ${port} is busy. Retrying on ${fallback}...`);
+        server.removeListener('error', onError);
+        tryListen(fallback);
+        return;
+      }
+
+      console.error('Server listen failed:', error);
+      process.exit(1);
+    };
+
+    server.once('error', onError);
+    server.listen(port, () => {
+      console.log(`PatientTriage API listening on ${port}`);
+      if (port !== PORT) {
+        console.log(`PORT ${PORT} was busy; backend is available on ${port}`);
+      }
+
+      const interval = Math.max(5000, Number(process.env.TRIAGE_INTERVAL_MS || 30000));
+      setInterval(() => {
+        runQueueTick({ io }).catch(error => {
+          console.error('Queue monitor:', error.message);
+        });
+      }, interval);
+    });
+  };
+
+  tryListen(PORT);
+}
+
+connectDB()
+  .then(startServer)
+  .catch(error => {
+    console.error('Startup failed:', error.message);
+    process.exit(1);
+  });
