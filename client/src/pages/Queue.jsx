@@ -2,5 +2,151 @@ import { AlertTriangle, RefreshCw, Timer, Zap } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../api';
-import { EsiBadge, ActionBadge } from '../components/Badge';
-export default function Queue(){const[p,setP]=useState([]);const[busy,setBusy]=useState(false);const[surge,setSurge]=useState(false);const load=()=>api.get('/queue').then(r=>{setP(r.data.data||[]);setSurge((r.data.data||[]).some(x=>x.surgeMode))});useEffect(()=>{load();const t=setInterval(load,10000);return()=>clearInterval(t)},[]);const tick=async()=>{setBusy(true);try{await api.post('/queue/tick')}finally{setBusy(false);load()}};const toggle=async()=>{await api.post('/queue/surge',{enabled:!surge});load()};return <div><div className="hero-small"><div><div className="eyebrow">CONTINUOUS MONITOR</div><h2>Live ED queue</h2><p>Priority is re-ranked by acuity, escalation, deterioration and wait risk.</p></div><div className="queue-controls"><button className="secondary-button" onClick={tick} disabled={busy}><RefreshCw size={15}/>{busy?'Reassessing…':'Reassess now'}</button><button className="secondary-button" onClick={toggle}><Zap size={15}/>{surge?'Disable surge':'Surge mode'}</button></div></div><div className="disclaimer"><Timer size={13}/> Normal reassessment: 5 minutes · Surge: 1 minute · escalation is never silently suppressed.</div><section className="panel table-panel"><div className="table-scroll"><table><thead><tr><th>Position</th><th>Patient</th><th>ESI</th><th>Confidence</th><th>Wait</th><th>Action</th><th>Flags</th></tr></thead><tbody>{p.map(x=>{const flags=Object.values(x.triage?.redFlags||{}).filter(f=>f.positive);return <tr key={x.patientId}><td>{x.position||'—'}</td><td><Link className="patient-link" to={`/patients/${x.patientId}`}><strong>{x.firstName} {x.lastName}</strong><small>{x.patientId} · {x.age}y · {x.triage?.ageBand}</small></Link></td><td><EsiBadge esi={x.finalEsi||x.triage?.esi}/></td><td><strong>{x.triage?.confidence||0}%</strong><small>{x.triage?.confidenceBand}</small></td><td>{Math.max(0,Math.floor((Date.now()-new Date(x.arrivalTime))/60000))}m</td><td><ActionBadge action={x.triage?.action}/></td><td>{flags.length?<span className="flag-count"><AlertTriangle size={13}/> {flags.length}</span>:<span className="muted">Clear</span>}</td></tr>})}</tbody></table></div>{!p.length&&<div className="empty-state">No waiting patients.</div>}</section></div>}
+import { ActionBadge, EsiBadge } from '../components/Badge';
+
+function getWaitMinutes(arrivalTime) {
+  const arrival = new Date(arrivalTime).getTime();
+  if (Number.isNaN(arrival)) return 0;
+  return Math.max(0, Math.floor((Date.now() - arrival) / 60000));
+}
+
+export default function Queue() {
+  const [patients, setPatients] = useState([]);
+  const [surgeMode, setSurgeMode] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const loadQueue = async () => {
+    try {
+      const response = await api.get('/queue');
+      const nextPatients = response.data.data || [];
+
+      setPatients(nextPatients);
+      setSurgeMode(nextPatients.some(patient => patient.surgeMode));
+      setError('');
+    } catch (requestError) {
+      setError(requestError.response?.data?.message || 'Unable to load the live queue');
+    }
+  };
+
+  useEffect(() => {
+    loadQueue();
+    const timer = setInterval(loadQueue, 10000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const reassessNow = async () => {
+    setLoading(true);
+    setError('');
+
+    try {
+      await api.post('/queue/tick');
+      await loadQueue();
+    } catch (requestError) {
+      setError(requestError.response?.data?.message || 'Queue reassessment failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const toggleSurge = async () => {
+    setError('');
+
+    try {
+      await api.post('/queue/surge', { enabled: !surgeMode });
+      await loadQueue();
+    } catch (requestError) {
+      setError(requestError.response?.data?.message || 'Unable to change operating mode');
+    }
+  };
+
+  return (
+    <div className="queue-page">
+      <section className="hero-small">
+        <div>
+          <div className="eyebrow">CONTINUOUS MONITOR</div>
+          <h2>Live ED queue</h2>
+          <p>Priority is re-ranked by acuity, escalation, deterioration and wait risk.</p>
+        </div>
+
+        <div className="queue-controls">
+          <button className="secondary-button" onClick={reassessNow} disabled={loading}>
+            <RefreshCw size={15} className={loading ? 'spin' : ''} />
+            {loading ? 'Reassessing…' : 'Reassess now'}
+          </button>
+          <button className="secondary-button" onClick={toggleSurge}>
+            <Zap size={15} />
+            {surgeMode ? 'Disable surge' : 'Surge mode'}
+          </button>
+        </div>
+      </section>
+
+      <div className="disclaimer">
+        <Timer size={13} />
+        Normal reassessment: 5 minutes · Surge: 1 minute · escalation is never silently suppressed.
+      </div>
+
+      {error && <div className="error-banner" role="alert">{error}</div>}
+
+      <section className="panel table-panel">
+        <div className="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Position</th>
+                <th>Patient</th>
+                <th>ESI</th>
+                <th>Confidence</th>
+                <th>Wait</th>
+                <th>Action</th>
+                <th>Flags</th>
+              </tr>
+            </thead>
+            <tbody>
+              {patients.map(patient => {
+                const flags = Object.values(patient.triage?.redFlags || {})
+                  .filter(flag => flag.positive);
+
+                return (
+                  <tr key={patient.patientId}>
+                    <td>{patient.position || '—'}</td>
+                    <td>
+                      <Link className="patient-link" to={`/patients/${patient.patientId}`}>
+                        <strong>{patient.firstName} {patient.lastName}</strong>
+                        <small>
+                          {patient.patientId} · {patient.age}y · {patient.triage?.ageBand || 'Unknown'}
+                        </small>
+                      </Link>
+                    </td>
+                    <td><EsiBadge esi={patient.finalEsi || patient.triage?.esi} /></td>
+                    <td>
+                      <strong>{patient.triage?.confidence || 0}%</strong>
+                      <small>{patient.triage?.confidenceBand || 'LOW'}</small>
+                    </td>
+                    <td>{getWaitMinutes(patient.arrivalTime)}m</td>
+                    <td><ActionBadge action={patient.triage?.action} /></td>
+                    <td>
+                      {flags.length ? (
+                        <span className="flag-count">
+                          <AlertTriangle size={13} /> {flags.length}
+                        </span>
+                      ) : (
+                        <span className="muted">Clear</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {!patients.length && (
+          <div className="empty-state">
+            No patients are currently waiting.
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
