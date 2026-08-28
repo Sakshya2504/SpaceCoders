@@ -17,8 +17,8 @@ npm run dev
 ```
 
 Frontend: http://localhost:5173
-Backend: http://localhost:5000
-Health: http://localhost:5000/api/health
+Backend: http://localhost:3000
+Health: http://localhost:3000/api/health
 
 Demo: charge@patienttriage.demo / demo123
 
