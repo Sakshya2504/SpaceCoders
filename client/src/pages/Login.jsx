@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { ArrowRight, HeartPulse, ShieldCheck, Sparkles } from 'lucide-react';
 import api from '../api';
 
 export default function Login() {
@@ -12,7 +13,6 @@ export default function Login() {
     event.preventDefault();
     setError('');
     setBusy(true);
-
     try {
       const response = await api.post('/auth/login', form);
       localStorage.setItem('pt_token', response.data.data.token);
@@ -26,44 +26,52 @@ export default function Login() {
   };
 
   return (
-    <div className="login-page">
-      <div className="login-card">
-        <div className="login-brand">
-          <div className="brand-mark">✚</div>
-          <div>
-            <strong>PatientTriage<span>.ai</span></strong>
-            <small>ED decision-support layer</small>
+    <div className="auth-page">
+      <div className="auth-visual">
+        <div className="auth-visual-overlay" />
+        <div className="auth-visual-content">
+          <div className="auth-logo"><HeartPulse size={20} /> PatientTriage<span>.ai</span></div>
+          <div className="auth-visual-copy">
+            <div className="auth-kicker"><Sparkles size={14} /> CLINICAL INTELLIGENCE</div>
+            <h1>Clearer triage.<br />Faster decisions.</h1>
+            <p>Bring patient context, acuity signals, red flags and queue risk into one safety-first workspace.</p>
+          </div>
+          <div className="auth-feature-row">
+            <div><ShieldCheck size={16} /><span>Human-in-the-loop</span></div>
+            <div><HeartPulse size={16} /><span>Realtime monitoring</span></div>
           </div>
         </div>
+      </div>
 
-        <div className="login-kicker">ACCENTURE INNOVATION CHALLENGE 2026 · ROUND 2</div>
-        <h1>ED Command Centre</h1>
-        <p className="muted">
-          Real-time triage recommendations with confidence, red-flag detection and explainable reasoning. The nurse remains in control.
-        </p>
+      <div className="auth-panel">
+        <div className="auth-form-wrap">
+          <div className="mobile-brand"><HeartPulse size={18} /> PatientTriage<span>.ai</span></div>
+          <div className="auth-eyebrow">SECURE ACCESS</div>
+          <h2>Welcome back</h2>
+          <p className="auth-intro">Sign in to access the emergency care command centre.</p>
 
-        <form onSubmit={submit} className="form-stack">
-          <label>
-            Email
-            <input value={form.email} onChange={event => setForm({ ...form, email: event.target.value })} />
-          </label>
-          <label>
-            Password
-            <input type="password" value={form.password} onChange={event => setForm({ ...form, password: event.target.value })} />
-          </label>
+          <form onSubmit={submit} className="form-stack auth-form">
+            <label>Email address
+              <input type="email" autoComplete="email" value={form.email} onChange={event => setForm({ ...form, email: event.target.value })} placeholder="name@hospital.org" />
+            </label>
+            <label>Password
+              <input type="password" autoComplete="current-password" value={form.password} onChange={event => setForm({ ...form, password: event.target.value })} placeholder="Enter your password" />
+            </label>
+            {error && <div className="error-banner">{error}</div>}
+            <button className="primary-button auth-submit" type="submit" disabled={busy}>
+              {busy ? 'Signing in…' : 'Sign in'}
+              {!busy && <ArrowRight size={16} />}
+            </button>
+          </form>
 
-          {error && <div className="error-banner">{error}</div>}
+          <div className="auth-demo-card">
+            <div><strong>Demo access</strong><span>Charge nurse workspace</span></div>
+            <code>charge@patienttriage.demo</code>
+            <code>demo123</code>
+          </div>
 
-          <button className="primary-button" type="submit" disabled={busy}>
-            {busy ? 'Signing in…' : 'Enter command centre'}
-          </button>
-        </form>
-
-        <div className="demo-login">
-          Demo: charge@patienttriage.demo / demo123
-        </div>
-        <div className="demo-login">
-          New user? <Link to="/signup">Create an account</Link>
+          <p className="auth-footer">New to the platform? <Link to="/signup">Create an account</Link></p>
+          <p className="auth-safety">Synthetic data environment · Decision support only · Clinician remains responsible.</p>
         </div>
       </div>
     </div>
