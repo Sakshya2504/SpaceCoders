@@ -1,4 +1,3 @@
-import { startOfDay } from 'date-fns';
 import { Router } from 'express';
 import Patient from '../models/Patient.js';
 import AuditLog from '../models/AuditLog.js';
@@ -24,8 +23,7 @@ function formatAverageTriageTime(patients) {
         return null;
       }
 
-      const seconds = Math.max(0, Math.round((generated - arrival) / 1000));
-      return seconds;
+      return Math.max(0, Math.round((generated - arrival) / 1000));
     })
     .filter(value => value !== null);
 
