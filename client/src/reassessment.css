@@ -1,0 +1,53 @@
+/*
+ * Reassessment styling is kept separate from the broader application stylesheet
+ * so the clinical-entry surface can evolve without disturbing the main layout.
+ */
+.reassess-intro {
+  margin: 0 0 16px;
+  padding: 11px 12px;
+  border: 1px solid #e4e8ef;
+  border-radius: 10px;
+  background: #f8f9fb;
+  color: #667284;
+  font-size: 9px;
+  line-height: 1.6;
+}
+
+.reassess-form {
+  gap: 12px;
+}
+
+.reassess-form .form-grid.two {
+  gap: 10px;
+}
+
+.reassess-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 11px;
+  border: 1px solid #dfe4eb;
+  border-radius: 10px;
+  background: #fbfcfe;
+  color: #6e7887;
+  font-size: 8px;
+  line-height: 1.55;
+}
+
+.reassess-note svg {
+  flex: 0 0 auto;
+  color: #6655e8;
+  margin-top: 1px;
+}
+
+.reassessment-meta {
+  margin-top: 10px;
+  color: #808a98;
+  font-size: 8px;
+}
+
+@media (max-width: 560px) {
+  .reassess-form .form-grid.two {
+    grid-template-columns: 1fr;
+  }
+}
