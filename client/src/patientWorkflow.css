@@ -30,6 +30,32 @@
   line-height: 1.55;
 }
 
+/*
+ * The ESI number stays compact everywhere else in the application. On the
+ * main recommendation card, however, we also show one plain-language sentence
+ * so the clinician does not have to mentally translate a bare number.
+ */
+.rec-esi {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.rec-esi .esi-badge {
+  max-width: 100%;
+}
+
+.rec-esi .esi-description {
+  display: block;
+  margin-top: 5px;
+  max-width: 420px;
+  color: #647083;
+  font-size: 8px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
 .probability-panel {
   margin-top: 15px;
   padding: 13px;
@@ -335,6 +361,10 @@
 @media (max-width: 560px) {
   .engineered-grid {
     grid-template-columns: 1fr;
+  }
+
+  .rec-esi .esi-description {
+    max-width: 100%;
   }
 
   .assessment-topline {
