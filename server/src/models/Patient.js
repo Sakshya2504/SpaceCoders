@@ -41,9 +41,9 @@ const assessmentSchema = new mongoose.Schema({
 });
 
 /*
- * `modelFeatures` stores the dataset-aligned feature vector used for ML work.
- * Keeping this separate from clinician-facing fields gives inference a stable
- * contract while allowing the UI to use human-friendly labels.
+ * The patient document separates clinician-friendly information from the exact
+ * feature payload used by the inference service. That gives the ML layer a
+ * stable contract while keeping the UI readable.
  */
 const patientSchema = new mongoose.Schema(
   {
@@ -72,7 +72,8 @@ const patientSchema = new mongoose.Schema(
     medications: { type: [String], default: [] },
     allergies: { type: [String], default: [] },
 
-    // Exact dataset-style input retained for reproducible model inference.
+    // Exact dataset-style fields are retained so the same patient can be
+    // reproduced for a later reassessment or model audit.
     modelFeatures: { type: mongoose.Schema.Types.Mixed, default: {} },
 
     triage: {
@@ -96,7 +97,8 @@ const patientSchema = new mongoose.Schema(
 
     assessments: { type: [assessmentSchema], default: [] },
 
-    // Keep clinician decisions separate from AI recommendations.
+    // A fresh model recommendation starts as PENDING. Accept and Override move
+    // this into an explicit clinician-owned state for traceability.
     manualEsi: { type: Number, min: 1, max: 5, default: null },
     finalEsi: { type: Number, min: 1, max: 5, default: null },
     clinicianDecision: {
@@ -106,6 +108,7 @@ const patientSchema = new mongoose.Schema(
     },
     clinicianDecisionAt: Date,
     clinicianDecisionBy: String,
+
     status: {
       type: String,
       enum: ['WAITING', 'SEEN', 'MANUAL_TRIAGE_REQUIRED'],
@@ -125,6 +128,12 @@ const patientSchema = new mongoose.Schema(
     deteriorationDetected: { type: Boolean, default: false },
     surgeMode: { type: Boolean, default: false },
 
+    // Completion marks the end of the active ED service workflow. Completed
+    // records remain searchable in Past Patients rather than being deleted.
+    serviceCompletedAt: Date,
+    serviceCompletedBy: String,
+    completionNote: { type: String, default: '' },
+
     // Clinician override/audit references.
     overridden: { type: Boolean, default: false },
     overrideBy: String,
@@ -138,5 +147,6 @@ const patientSchema = new mongoose.Schema(
 
 // The queue query is frequent, so keep its main sort/filter path indexed.
 patientSchema.index({ queueStatus: 1, 'triage.esi': 1, arrivalTime: 1 });
+patientSchema.index({ queueStatus: 1, serviceCompletedAt: -1 });
 
 export default mongoose.model('Patient', patientSchema);
