@@ -32,8 +32,8 @@ def build_advanced_clinical_features(df_in: pd.DataFrame) -> pd.DataFrame:
     """Reproduce the feature engineering used by the supplied model."""
     df_out = df_in.copy()
 
-    # The training pipeline derives a rolling two-hour arrival volume feature.
-    # For a single live request, the caller may supply a precomputed value.
+    # Match the final notebook exactly. A single live request has no arrival
+    # stream, so its rolling two-hour volume feature falls back to zero.
     if "arrival_time" in df_out.columns:
         df_out["arrival_time"] = pd.to_datetime(
             df_out["arrival_time"], errors="coerce"
@@ -45,10 +45,7 @@ def build_advanced_clinical_features(df_in: pd.DataFrame) -> pd.DataFrame:
         )
         df_out = df_out.sort_index()
     else:
-        df_out["ed_volume_last_2h"] = df_out.get(
-            "ed_volume_last_2h",
-            pd.Series(0, index=df_out.index),
-        )
+        df_out["ed_volume_last_2h"] = 0
 
     # Hemodynamic and respiratory indices.
     if "heart_rate" in df_out.columns and "systolic_bp" in df_out.columns:
@@ -148,7 +145,8 @@ def build_advanced_clinical_features(df_in: pd.DataFrame) -> pd.DataFrame:
             2 * np.pi * df_out["arrival_hour"] / 24.0
         )
 
-    # Remove identifiers, timestamps, and post-triage outcomes before inference.
+    # These fields are intentionally removed exactly as in the supplied
+    # notebook so post-triage information cannot leak into the prediction.
     post_triage_leaks = [
         "disposition",
         "ed_los_hours",
@@ -231,7 +229,7 @@ class FinalTriageEnsemble:
         engineered = build_advanced_clinical_features(frame)
 
         # The saved estimators expect exactly the same 52-column order used at
-        # training time. Missing numeric values remain NaN for model handling.
+        # training time. Missing values remain NaN for model handling.
         for column in set(self.features).difference(engineered.columns):
             engineered[column] = np.nan
         engineered = engineered[self.features]
@@ -262,12 +260,11 @@ class FinalTriageEnsemble:
                 / n_splits
             )
             xgb_probabilities += (
-                self.artifacts["xgb_models"][fold].predict_proba(fold_frame)
+                self.artifacts["xgb_models"][fold].predict_proba(fold)
                 / n_splits
             )
 
-        # Stack the base-model probabilities and let the trained meta-model
-        # produce the final normalized class probabilities.
+        # The final LogisticRegression model stacks both base-model outputs.
         stacked = np.hstack([lgb_probabilities, xgb_probabilities])
         probabilities = self.artifacts["meta_model"].predict_proba(stacked)[0]
         classes = self.artifacts["meta_model"].classes_
