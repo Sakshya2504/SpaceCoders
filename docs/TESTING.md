@@ -1,116 +1,132 @@
-# Testing & Verification Guide
+# PatientTriage.ai — Testing & Verification Guide
 
-This document is the final manual verification plan for PatientTriage.ai. It is intended for local development and demonstration. Passing these checks confirms that the implemented software behavior works as designed; it does not establish clinical validity.
+This guide verifies the software behavior of the prototype from startup through the complete clinician workflow. Passing these checks confirms the current implementation behaves as documented; it does not establish clinical validity.
 
-## 1. Startup verification
+## 1. Startup
 
-From the repository root:
+Install dependencies:
 
 ```powershell
 npm install
 npm run install:all
-npm run dev
 ```
 
-Confirm:
-
-```text
-Frontend  http://localhost:5173
-Backend   http://localhost:3000
-```
-
-If model-backed inference is being tested, train the model and start the Python service separately:
+Start MongoDB, then start the supplied model service:
 
 ```powershell
-python -m pip install -r ml/requirements.txt
-python -m pip install -r ml/requirements-inference.txt
-python ml/train_xgboost.py --data train.csv
 uvicorn ml.inference_service:app --host 127.0.0.1 --port 8000
 ```
 
-## 2. Automated CI verification
+Start the MERN application in another terminal:
 
-Every push and pull request targeting `main` runs `.github/workflows/ci.yml`.
+```powershell
+npm run dev
+```
 
-The workflow checks:
+Expected endpoints:
+
+```text
+Frontend → http://localhost:5173
+Backend  → http://localhost:3000
+ML       → http://127.0.0.1:8000
+```
+
+## 2. Automated checks
+
+The repository CI checks source-level health such as:
 
 ```text
 Node dependency installation
-        ↓
-Backend test suite
-        ↓
+Backend tests
 Frontend production build
-        ↓
-Python syntax compilation
+Python syntax/module compilation
 ```
 
-This catches import errors, JavaScript test failures, frontend build failures and Python syntax errors before the repository is considered ready. It does not replace the local MongoDB, Socket.IO and XGBoost integration checks below.
+These checks do not replace local MongoDB, model-service and Socket.IO integration testing.
 
-## 3. Health checks
+## 3. Model artifact verification
 
-Backend:
+Before model-backed tests:
+
+```powershell
+python ml/verify_model_artifact.py
+```
+
+Confirm the supplied artifact is:
 
 ```text
-http://localhost:3000/api/health
+ml/artifacts/triage_ensemble_model.pkl
 ```
 
-Verify that the API reports database, AI mode and realtime state.
+and that its recorded checksum matches the project documentation.
 
-ML service:
+The final runtime ensemble is:
 
 ```text
-http://127.0.0.1:8000/health
+5 × LightGBM
++
+5 × XGBoost
+      ↓
+LogisticRegression stacking model
+      ↓
+ESI 1–5 + probabilities + confidence
 ```
 
-Verify that XGBoost reports `ok: true` and the expected model version.
+Do not use the older prototype training script as evidence that the supplied final artifact has been loaded.
 
 ## 4. Authentication
 
 ### Login
 
-Use a seeded account:
+Use a seeded synthetic account:
 
 ```text
 charge@patienttriage.demo
 Password: demo123
 ```
 
-Confirm that the protected application loads.
+Confirm the protected application opens and the user/role are shown.
 
 ### Invalid login
 
-Use an incorrect password. A readable error should appear without exposing stack traces or internal configuration.
+Use an incorrect password. Verify that the browser shows a useful error without exposing stack traces or secrets.
 
 ### Signup
 
-Open `/signup` and create a new account.
+Open `/signup` and create a synthetic account.
 
-Verify that:
+Verify that required fields and password confirmation are enforced and that the server assigns the default `triage_nurse` role.
 
-- required fields are enforced;
-- invalid email is rejected by the browser;
-- password confirmation is required;
-- successful signup creates a session;
-- the server assigns the default `triage_nurse` role.
+## 5. Intake and data contract
 
-## 5. Intake and data-contract verification
-
-Open **Patient Intake**.
-
-Complete identity, demographics, arrival context, complaint, history and measurements.
-
-Verify the browser displays derived values for:
+Open **Patient Intake** and complete the available training-aligned fields:
 
 ```text
-BMI
-Mean arterial pressure
-Pulse pressure
-Shock index
+identity / demographics
+arrival context
+complaint context
+history
+medication / comorbidity counts
+vitals
+GCS
+pain score
+weight / height
+NEWS2
 ```
 
-Verify the submitted `modelFeatures` uses the training dataset's feature names.
+Verify calculated fields are displayed for:
 
-The following are intentionally not operator-entered model predictors:
+```text
+age group
+arrival hour/day/month/season
+shift
+BMI
+mean arterial pressure
+pulse pressure
+shock index
+```
+
+Confirm post-triage values are not required as predictive inputs:
 
 ```text
 patient_id
@@ -121,224 +137,256 @@ triage_acuity
 
 ## 6. Patient creation
 
-Submit a valid synthetic patient.
+Submit a synthetic patient.
 
 Expected sequence:
 
 ```text
-POST /api/patients
-     ↓
-patient ID generated
-     ↓
-complaint signals extracted
-     ↓
-triage executed
-     ↓
-patient persisted
-     ↓
-audit events written
-     ↓
-realtime events emitted
-     ↓
-Patient Review opened
+intake submitted
+    ↓
+application ID generated
+    ↓
+feature contract built
+    ↓
+final ensemble called when available
+    ↓
+safety / uncertainty layer runs
+    ↓
+patient + assessment stored
+    ↓
+audit event written
+    ↓
+realtime event emitted
+    ↓
+Patient Review opens
 ```
 
-## 7. XGBoost verification
+Verify that the review page is not blank and that the recommendation is readable.
 
-With the Python service available, create a patient and inspect the stored model metadata.
+## 7. Model result
 
-Verify:
+With FastAPI healthy, verify that Patient Review shows:
 
-- predicted ESI is 1–5;
-- class probabilities are present;
-- probability values are numeric;
-- model name/version is recorded;
-- Patient Review does not represent the recommendation as an autonomous final decision.
+```text
+AI recommended ESI
+model/source
+model version
+confidence
+five-class probabilities
+supporting reasons
+independent red flags
+```
 
-## 8. Red-flag verification
+The model name should identify the supplied ensemble, not merely “XGBoost”.
 
-### Respiratory case
+## 8. ESI display
 
-Use synthetic values such as:
+Verify the portal maps the numeric model output to the human-readable ESI descriptions:
+
+```text
+ESI 1 → Immediate intervention
+ESI 2 → High-risk / time-sensitive
+ESI 3 → Stable, but significant resource need
+ESI 4 → Lower acuity
+ESI 5 → Minimal acuity
+```
+
+These are prototype product explanations and should not be described as a clinically validated implementation.
+
+## 9. Safety detectors
+
+Use synthetic cases to exercise each detector family.
+
+### Respiratory-risk example
 
 ```text
 SpO₂: 82
 Respiratory rate: 34
-Complaint: severe shortness of breath and blue lips
+Complaint: severe shortness of breath
 ```
 
-Verify:
+Verify the respiratory detector can raise the configured urgency and that a corresponding alert/audit event is visible.
 
-- respiratory detector is positive;
-- immediate escalation is displayed;
-- an alert is generated;
-- audit activity is recorded.
+### Other detector families
 
-### MI-like case
+Also exercise synthetic examples for:
 
-Use a complaint containing chest pressure, radiation, diaphoresis and nausea.
+```text
+MI-like
+stroke-like
+sepsis-like
+```
 
-Verify the MI-like detector records the expected signals.
+Confirm each remains separate from the general model score.
 
-### Stroke-like case
+## 10. Uncertainty and fail-open
 
-Use sudden facial droop, speech difficulty and weakness.
+Create a synthetic patient with limited history and verify uncertainty is visible.
 
-Verify the stroke-like detector increases urgency.
-
-### Sepsis-like case
-
-Use synthetic fever/infection context with tachycardia, elevated respiratory rate, low systolic BP and altered mental status.
-
-Verify the independent detector is represented in the recommendation.
-
-## 9. Uncertainty and fail-open verification
-
-Create a patient with complete information and one with `hasHistory = false`.
-
-Verify that missing history reduces the confidence contribution.
-
-Then stop the Python service and trigger triage/reassessment.
+Then stop the Python model service and trigger a triage/reassessment.
 
 Expected behavior:
 
 ```text
-XGBoost unavailable
+FastAPI unavailable
       ↓
-Node fallback scorer
+Node catches failure
       ↓
-workflow remains available
+explicit prototype fallback
       ↓
-model source indicates fallback
+workflow continues
+      ↓
+source metadata identifies fallback
 ```
 
-The failure must not leave the browser request hanging indefinitely.
+The fallback must not be presented as the supplied ensemble result.
 
-## 10. Patient identifier verification
+## 11. Reassess
 
-Open a seeded patient by application ID:
+Open Patient Review and click **Reassess**.
+
+Verify that the reassessment window allows updated current values and that the action shows an explicit loading state.
+
+After the request completes:
 
 ```text
-PT-2026-001
+new recommendation
+new confidence
+new assessment record
+previous assessments retained
 ```
 
-Verify that the route returns the patient without a Mongoose ObjectId cast error.
+Add several reassessments and confirm the history is internally scrollable rather than expanding the whole page without bound.
 
-Also exercise a valid MongoDB `_id` in a controlled development request to confirm both identifier forms remain supported.
-
-## 11. Clinician decision tests
+## 12. Accept and Override
 
 ### Accept
 
 Click **Accept**.
 
-Verify a clinician acceptance event is created and the final priority remains distinguishable from the model recommendation.
+Verify a clinician action is recorded and the final state remains distinguishable from the raw model recommendation.
 
 ### Override
 
-Choose **Override**.
-
-Verify:
+Click **Override** and verify:
 
 ```text
-Target ESI → required → 1–5
-Reason     → required → structured option
+Target ESI → required, 1–5
+Reason     → required
 Note       → optional
 ```
 
-After saving, confirm `finalEsi` reflects the clinician selection and the override is audited.
+After saving, verify the clinician-selected priority becomes the effective final state and the action is audited.
 
-### Reassess
+## 13. Live Queue
 
-Click **Reassess** and confirm the patient is scored again and the assessment history grows. The UI should show a loading state while the request is in flight and a readable error if the request fails.
-
-## 12. Queue verification
-
-Open **Live Queue**.
-
-Verify:
-
-- waiting patients load;
-- positions are shown;
-- ESI and confidence are shown;
-- wait time is visible;
-- action state is visible;
-- red-flag count is visible.
-
-Click **Reassess now** and verify the queue refreshes.
-
-Toggle **Surge mode** and verify its state changes.
-
-For development, also exercise the deterioration simulation endpoint with both a synthetic application ID and, where appropriate, a valid MongoDB `_id`.
-
-## 13. Reassessment and deterioration
-
-For a waiting synthetic patient, create a worsening condition through the reassessment/simulation workflow.
-
-Verify:
+Open **Live Queue** and verify:
 
 ```text
-previous ESI
-    ↓
-new ESI
-    ↓
-deteriorationDetected
-    ↓
-realtime deterioration event
-    ↓
-alert / audit activity
+position
+patient identity
+ESI
+confidence
+wait time
+action state
+red-flag state
+reassessment timing
 ```
 
-## 14. Realtime alert testing
+Click **Reassess now** and confirm the queue refreshes.
 
-Keep the alert center visible and trigger events through the workflow.
+Toggle **Surge mode** and confirm the mode changes.
 
-At minimum verify:
+## 14. Alerts
+
+Open the alert bell and trigger workflow events.
+
+Verify that the alert center can show:
 
 ```text
-triage completion
+new triage recommendation
 immediate escalation
 deterioration
-override
-fail-open
-surge completion
-queue update
+clinician override
+AI fail-open
+surge activity
 ```
 
-The alert center should update unread state without a full page reload.
+Add multiple alerts and confirm the menu remains bounded and scrollable.
 
-## 15. Audit verification
+## 15. Service completion and Past Patients
 
-Open **Audit Trail**.
+From Patient Review, click **Mark service done**.
 
-Click **Verify chain**.
+Verify:
 
-For a healthy seed/demo state, expect:
+```text
+patient leaves active workflow
+      ↓
+completion state is stored
+      ↓
+patient becomes visible in Past Patients
+```
+
+Historical assessments and audit information should remain reviewable.
+
+## 16. Patient identifiers
+
+Open a patient using a human-readable application ID such as:
+
+```text
+PT-2026-LWSBKX
+```
+
+Verify no Mongoose ObjectId cast error occurs.
+
+Also verify a valid MongoDB `_id` works in a controlled development request if both formats are supported by the current route.
+
+## 17. Realtime behavior
+
+Keep the application open while creating or updating patients.
+
+Verify that Socket.IO events update the relevant UI without requiring a full page reload:
+
+```text
+system:health
+patient:created
+triage:completed
+escalation
+reassessment
+override
+queue:updated
+```
+
+## 18. Audit verification
+
+Open **Audit Trail** and click **Verify chain**.
+
+Expected healthy state:
 
 ```text
 CHAIN VALID
 ```
 
-and a count of verified events.
+In a controlled test database, modifying one audit document should cause verification to identify the first broken event rather than returning a generic failure.
 
-To test the invalid path in a controlled development environment, alter a test audit document and run verification. The service should report the first broken event rather than simply returning a generic failure.
+## 19. Dashboard
 
-## 16. Dashboard verification
+After creating several synthetic patients, verify Command Centre metrics are dynamic:
 
-Open **Command Centre** after creating several synthetic patients.
+```text
+patients today
+waiting now
+critical / high-risk counts
+reassessment due
+average confidence
+active alerts
+ESI distribution
+```
 
-Verify that:
+Confirm values are derived from stored application state rather than fixed display constants.
 
-- Patients today reflects today's arrivals rather than total database size;
-- waiting volume reflects patients currently waiting;
-- critical/high-risk counts are derived from current queue state;
-- ESI distribution is calculated from today's patient set;
-- red-flag counts are calculated from today's patient set;
-- average confidence reflects available today's triage results;
-- average triage time is derived from stored timestamps rather than a hardcoded value;
-- database health comes from the actual MongoDB connection state.
-
-## 17. Responsive verification
+## 20. Responsive verification
 
 Test approximately:
 
@@ -352,14 +400,17 @@ Test approximately:
 
 Confirm:
 
-- no page-wide horizontal overflow;
-- forms collapse to available width;
-- buttons remain usable;
-- alert panel fits the viewport;
-- navigation remains reachable;
-- dense tables scroll locally when necessary.
+```text
+no page-wide horizontal overflow
+forms fit available width
+primary actions remain reachable
+alert panel fits the viewport
+reassessment history scrolls locally
+data tables scroll locally when required
+keyboard focus remains visible
+```
 
-## 18. Build verification
+## 21. Build verification
 
 Run:
 
@@ -367,51 +418,38 @@ Run:
 npm run build
 ```
 
-The Vite production build should complete without unresolved imports or syntax errors.
+The frontend production build should finish without unresolved imports or syntax errors.
 
-The same frontend build and backend tests are also checked by GitHub Actions on pushes and pull requests.
-
-## 19. Regression checklist
+## 22. Final smoke-test checklist
 
 ```text
-[ ] npm install succeeds
-[ ] client/server dependencies install
 [ ] MongoDB connects
-[ ] backend starts on 3000
-[ ] frontend starts on 5173
-[ ] /api/health responds
-[ ] ML /health responds when enabled
+[ ] supplied model artifact verifies
+[ ] FastAPI /health is healthy
+[ ] Node /api/health is healthy
+[ ] frontend runs on 5173
 [ ] login works
 [ ] signup works
-[ ] seed works
-[ ] patient intake renders correctly
-[ ] derived metrics calculate
+[ ] intake renders all required field families
+[ ] derived values calculate
 [ ] patient creation works
-[ ] dataset-aligned model features are generated
-[ ] XGBoost result is recorded when available
-[ ] fallback works when XGBoost is unavailable
-[ ] red flags work
-[ ] confidence/uncertainty behavior works
-[ ] application patient IDs work
-[ ] patient review loads
-[ ] accept works
-[ ] override works
-[ ] reassess works
+[ ] Patient Review loads
+[ ] supplied ensemble metadata is shown
+[ ] ESI explanation is shown
+[ ] safety detectors are shown separately
+[ ] Accept works
+[ ] Override works
+[ ] Reassess works
+[ ] reassessment history is retained
 [ ] queue works
-[ ] deterioration simulation works
-[ ] surge mode works
-[ ] realtime alerts appear
-[ ] audit chain verifies
-[ ] dashboard metrics are dynamic
+[ ] alerts update in realtime
+[ ] Mark service done works
+[ ] Past Patients contains completed patient
+[ ] audit verification works
 [ ] responsive layouts work
-[ ] production build completes
-[ ] GitHub Actions checks pass
+[ ] production build passes
 ```
 
-## 20. Test-data safety
+## 23. Interpreting test results
 
-All functional testing in this repository should use synthetic data. Never run the destructive seed process against a production database.
-
-## 21. Test-result interpretation
-
-A passing software regression suite demonstrates implementation correctness for the current prototype. It does not prove clinical accuracy, safety, bias mitigation, effectiveness, regulatory compliance or suitability for unsupervised patient care.
+A passing software test suite means the current prototype behaves as implemented. It does not demonstrate clinical accuracy, effectiveness, fairness, safety, regulatory compliance or suitability for unsupervised patient care.
