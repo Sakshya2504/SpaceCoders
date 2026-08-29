@@ -11,25 +11,25 @@ Browser
                                       │
                                       └── MongoDB → localhost:27017
 
-Optional ML process:
-Python + FastAPI + XGBoost → http://127.0.0.1:8000
+ML process:
+Python + FastAPI + final triage ensemble → http://127.0.0.1:8000
 ```
 
-The ML service is used for model-backed inference when available. The Node application retains a deterministic prototype fallback so an unavailable Python process does not block the workflow.
+The final model supplied with the project is a five-fold LightGBM + XGBoost ensemble with a LogisticRegression stacking model. The Node application keeps a deterministic fallback so an unavailable Python process does not block the prototype workflow.
 
 ## 1. Prerequisites
 
-Install the following locally:
+Install:
 
 ```text
 Node.js 20+ recommended
 npm
 MongoDB Community Server or another local MongoDB instance
-Python 3.10+ recommended for model training/inference
+Python 3.10+ recommended
 Git
 ```
 
-Verify the installations:
+Verify:
 
 ```powershell
 node --version
@@ -38,7 +38,7 @@ python --version
 git --version
 ```
 
-MongoDB must be running before the seed command or backend can use the database.
+MongoDB must be running before the seed command or backend can access the database.
 
 ## 2. Clone the repository
 
@@ -49,18 +49,14 @@ cd SpaceCoders
 
 ## 3. Install JavaScript dependencies
 
-From the repository root:
-
 ```powershell
 npm install
 npm run install:all
 ```
 
-The root scripts install the server and client dependencies separately and use `concurrently` for the full development command.
-
 ## 4. Configure the Node backend
 
-Create this file:
+Create:
 
 ```text
 server/.env
@@ -78,43 +74,112 @@ MANUAL_MODE=false
 ML_INFERENCE_URL=http://127.0.0.1:8000
 ```
 
-`.env` is intentionally ignored by Git. Never commit real credentials or production secrets.
+`.env` is ignored by Git. Do not commit real secrets.
 
-## 5. Seed synthetic data
+## 5. Install the supplied final model artifact
 
-Make sure MongoDB is running, then execute:
+The final model artifact is:
+
+```text
+triage_ensemble_model.pkl
+```
+
+Copy it into:
+
+```text
+ml/artifacts/triage_ensemble_model.pkl
+```
+
+From the repository root, when the uploaded/local file is available in the root:
+
+```powershell
+Copy-Item .\triage_ensemble_model.pkl .\ml\artifacts\triage_ensemble_model.pkl
+```
+
+Expected SHA-256:
+
+```text
+8a22c60268cb26fab39935cbd087c74568658db32da26f99f662559288d06ccc
+```
+
+The artifact is intentionally excluded from Git because it is a large binary model. The repository contains `ml/artifacts/README.md` with the same checksum and placement instructions.
+
+## 6. Seed synthetic data
+
+With MongoDB running:
 
 ```powershell
 npm run seed
 ```
 
-The seed operation recreates the demo collections used by the prototype. It creates four demo users and eighteen synthetic patients with triage assessments, queue state and audit events.
+The seed operation recreates the demo collections, four demo users, synthetic patients, triage assessments, queue state and audit events.
 
-Default demo credentials:
+Demo password:
 
 ```text
-Charge nurse
-charge@patienttriage.demo
-Password: demo123
-
-Triage nurse
-nurse@patienttriage.demo
-Password: demo123
-
-Clinical admin
-admin@patienttriage.demo
-Password: demo123
-
-System admin
-system@patienttriage.demo
-Password: demo123
+demo123
 ```
 
-## 6. Start the MERN application
+Accounts:
 
-### Option A — start frontend and backend together
+```text
+charge@patienttriage.demo
+nurse@patienttriage.demo
+admin@patienttriage.demo
+system@patienttriage.demo
+```
 
-From the root:
+## 7. Install ML runtime dependencies
+
+```powershell
+python -m pip install -r ml/requirements-inference.txt
+```
+
+The runtime needs LightGBM and XGBoost because the supplied pickle contains both model families, plus scikit-learn for the stacking model.
+
+## 8. Verify the supplied model
+
+From the repository root:
+
+```powershell
+python ml/verify_model_artifact.py
+```
+
+With the supplied prediction output CSV also present locally:
+
+```powershell
+python ml/verify_model_artifact.py --predictions triage_predictions_output.csv
+```
+
+The reference check should reproduce the first prediction/confidence pair from the supplied output.
+
+## 9. Start the final model inference service
+
+```powershell
+uvicorn ml.inference_service:app --host 127.0.0.1 --port 8000
+```
+
+Check:
+
+```text
+http://127.0.0.1:8000/health
+```
+
+Expected healthy shape:
+
+```json
+{
+  "ok": true,
+  "model": "LightGBM + XGBoost Ensemble",
+  "modelVersion": "triage-ensemble-v1",
+  "featureCount": 52,
+  "foldCount": 5
+}
+```
+
+## 10. Start the MERN application
+
+In a second terminal:
 
 ```powershell
 npm run dev
@@ -123,90 +188,18 @@ npm run dev
 Expected endpoints:
 
 ```text
-Frontend  http://localhost:5173
-Backend   http://localhost:3000
+Frontend  → http://localhost:5173
+Backend   → http://localhost:3000
+ML        → http://127.0.0.1:8000
 ```
 
-### Option B — start the processes separately
-
-Backend terminal:
-
-```powershell
-cd server
-npm run dev
-```
-
-Frontend terminal:
-
-```powershell
-cd client
-npm run dev
-```
-
-## 7. Train the XGBoost model
-
-Place the supplied reference dataset at:
-
-```text
-train.csv
-```
-
-from the repository root, or provide another path explicitly.
-
-Install model dependencies:
-
-```powershell
-python -m pip install -r ml/requirements.txt
-python -m pip install -r ml/requirements-inference.txt
-```
-
-Train:
-
-```powershell
-python ml/train_xgboost.py --data train.csv
-```
-
-The training pipeline performs preprocessing and writes the persisted model to:
-
-```text
-ml/artifacts/triage_xgb_pipeline.joblib
-```
-
-The binary model is ignored by Git because it is generated from the local training data.
-
-## 8. Start XGBoost inference
-
-Run from the repository root:
-
-```powershell
-uvicorn ml.inference_service:app --host 127.0.0.1 --port 8000
-```
-
-Verify:
-
-```text
-http://127.0.0.1:8000/health
-```
-
-A healthy response includes:
-
-```json
-{
-  "ok": true,
-  "model": "XGBoost",
-  "modelVersion": "xgboost-multiclass-v1"
-}
-```
-
-## 9. Recommended end-to-end startup
-
-Use three terminals.
+## 11. Full startup order
 
 ### Terminal 1 — MongoDB
 
 Keep the MongoDB service running.
 
-### Terminal 2 — XGBoost inference
+### Terminal 2 — final model service
 
 ```powershell
 cd S:\Accenture_Hackathon\SpaceCoders
@@ -226,7 +219,23 @@ Open:
 http://localhost:5173
 ```
 
-## 10. Health checks
+## 12. Model-backed patient flow
+
+1. Sign in.
+2. Open Patient Intake.
+3. Enter the dataset-aligned patient information.
+4. Submit the patient.
+5. Node builds the model feature contract.
+6. Node calls `/predict` on FastAPI.
+7. FastAPI reproduces the supplied notebook feature engineering.
+8. Five LightGBM and five XGBoost folds produce probabilities.
+9. LogisticRegression stacks those probabilities.
+10. The final ESI and confidence return to Node.
+11. Node applies independent safety/red-flag rules.
+12. The clinician accepts or overrides the recommendation.
+13. The decision is written to the audit trail and queue workflow.
+
+## 13. Health checks
 
 Backend:
 
@@ -234,7 +243,7 @@ Backend:
 http://localhost:3000/api/health
 ```
 
-ML service:
+Model:
 
 ```text
 http://127.0.0.1:8000/health
@@ -246,81 +255,69 @@ Frontend:
 http://localhost:5173
 ```
 
-The backend health response reports database status, AI mode and realtime status.
-
-## 11. Normal application workflow
-
-1. Sign in.
-2. Open Command Centre.
-3. Open Patient Intake.
-4. Enter a synthetic patient using the dataset-aligned fields.
-5. Submit the patient.
-6. Review the ESI recommendation, confidence, red flags and explanations.
-7. Accept or override the recommendation.
-8. Open Live Queue and use reassessment/surge controls.
-9. Watch the alert center for realtime events.
-10. Open Audit Trail and verify the SHA-256 chain.
-
-## 12. Common errors
+## 14. Common errors
 
 ### Port 3000 already in use
 
-Find the owning process:
-
 ```powershell
 netstat -ano | findstr :3000
-```
-
-During local development, old Node processes can be stopped with:
-
-```powershell
 taskkill /F /IM node.exe
 ```
 
-Then restart the backend.
-
-### `EADDRINUSE` still appears
-
-Make sure only one backend instance is running. The application intentionally uses port `3000`; do not switch the port in only one part of the stack.
+Only run one backend instance.
 
 ### MongoDB connection fails
 
-Check the MongoDB service and verify `MONGO_URI` in `server/.env`.
+Check the MongoDB service and `MONGO_URI` in `server/.env`.
 
 ### `dbHealth` import error
 
-Pull the latest repository. `server/src/config/db.js` exports both `connectDB` and `dbHealth`.
+Pull the latest source. The database configuration exports `dbHealth`.
 
 ### `patientCode_1` duplicate-key error
 
-The current database connection removes the legacy unique `patientCode_1` index left by an older schema.
+The current database startup removes the obsolete unique `patientCode_1` index from older schema versions.
 
-### Synthetic patient ID causes ObjectId casting error
+### Patient ID causes an ObjectId cast error
 
-The patient route accepts both MongoDB `_id` values and application IDs such as `PT-2026-LWSBKX`.
+Routes recognize both MongoDB `_id` values and human-readable patient IDs such as `PT-2026-LWSBKX`.
 
-### ML service is unavailable
+### Model health reports `ok: false`
 
-The Node triage engine records the model outage and uses its deterministic prototype fallback. For model-backed inference, start FastAPI and verify `ML_INFERENCE_URL`.
+Verify that:
 
-### Frontend is not using the latest styles
+```text
+ml/artifacts/triage_ensemble_model.pkl
+```
 
-Stop and restart Vite, then perform:
+exists and that its SHA-256 matches the documented checksum.
+
+### Model loading reports sklearn/XGBoost compatibility warnings
+
+Use the versions defined by `ml/requirements-inference.txt`. Persisted pickle artifacts depend on compatible Python and ML-library versions.
+
+### Model service is offline
+
+The Node application uses its deterministic fail-open scorer instead of blocking the patient workflow. Patient Review records the fallback model source.
+
+### Frontend is stale
+
+Restart Vite and hard-refresh:
 
 ```text
 Ctrl + Shift + R
 ```
 
-## 13. Resetting demo data
+## 15. Destructive reset
 
-Run:
+The seed command clears and recreates the configured demo data. Use it only against the synthetic development database:
 
 ```powershell
 npm run seed
 ```
 
-The seed command is destructive for the configured demo collections. Use it only with the synthetic development database.
+Never point this command at a production database.
 
-## 14. Production boundary
+## 16. Production boundary
 
-This guide describes a local prototype setup. A production deployment would require secure secret management, TLS, hardened database access, centralized logging, monitoring, model governance, formal clinical validation, privacy controls and operational runbooks.
+This guide describes a demonstration environment. Production use would require formal clinical validation, external/temporal validation, model calibration, subgroup analysis, secure artifact distribution, monitoring, privacy controls, clinical governance, change control and any applicable regulatory assessment.
