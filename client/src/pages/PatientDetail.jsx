@@ -20,13 +20,31 @@ export default function PatientDetail() {
 
   const [patient, setPatient] = useState(null);
   const [isOverrideOpen, setIsOverrideOpen] = useState(false);
+  const [isReassessOpen, setIsReassessOpen] = useState(false);
   const [busyAction, setBusyAction] = useState('');
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+
   const [overrideForm, setOverrideForm] = useState({
     targetEsi: '',
     reason: 'Clinical judgement',
     note: ''
+  });
+
+  // Reassessment represents a new bedside observation. The form starts with
+  // the latest values so the clinician can change only what has changed.
+  const [reassessmentForm, setReassessmentForm] = useState({
+    chiefComplaint: '',
+    mentalStatus: 'Alert and oriented',
+    heartRate: '',
+    respiratoryRate: '',
+    systolicBP: '',
+    diastolicBP: '',
+    temperature: '',
+    spo2: '',
+    painScore: '',
+    gcsTotal: '',
+    news2Score: ''
   });
 
   const loadPatient = useCallback(async () => {
@@ -73,12 +91,109 @@ export default function PatientDetail() {
       'Recommendation accepted and recorded.'
     );
 
-  const reassessPatient = () =>
+  const openReassessment = () => {
+    const vitals = patient?.vitals || {};
+    const modelFeatures = patient?.modelFeatures || {};
+
+    setError('');
+    setMessage('');
+    setReassessmentForm({
+      chiefComplaint: patient?.chiefComplaint || '',
+      mentalStatus: patient?.mentalStatus || 'Alert and oriented',
+      heartRate: vitals.heartRate ?? '',
+      respiratoryRate: vitals.respiratoryRate ?? '',
+      systolicBP: vitals.systolicBP ?? '',
+      diastolicBP: vitals.diastolicBP ?? '',
+      temperature: vitals.temperature ?? '',
+      spo2: vitals.spo2 ?? '',
+      painScore: vitals.painScore ?? '',
+      gcsTotal: modelFeatures.gcs_total ?? 15,
+      news2Score: modelFeatures.news2_score ?? 0
+    });
+    setIsReassessOpen(true);
+  };
+
+  const updateReassessmentField = (field, value) => {
+    setReassessmentForm(current => ({
+      ...current,
+      [field]: value
+    }));
+  };
+
+  const toNumberOrNull = value => {
+    if (value === '' || value === null || value === undefined) {
+      return null;
+    }
+
+    const number = Number(value);
+    return Number.isFinite(number) ? number : null;
+  };
+
+  const confirmReassessment = () => {
+    const numericValues = [
+      reassessmentForm.heartRate,
+      reassessmentForm.respiratoryRate,
+      reassessmentForm.systolicBP,
+      reassessmentForm.diastolicBP,
+      reassessmentForm.temperature,
+      reassessmentForm.spo2,
+      reassessmentForm.painScore,
+      reassessmentForm.gcsTotal,
+      reassessmentForm.news2Score
+    ];
+
+    if (numericValues.some(value => toNumberOrNull(value) === null)) {
+      setError('Please complete all reassessment measurements before continuing.');
+      return;
+    }
+
+    const gcsTotal = toNumberOrNull(reassessmentForm.gcsTotal);
+    const painScore = toNumberOrNull(reassessmentForm.painScore);
+    const news2Score = toNumberOrNull(reassessmentForm.news2Score);
+
+    if (gcsTotal < 3 || gcsTotal > 15) {
+      setError('GCS must be between 3 and 15.');
+      return;
+    }
+
+    if (painScore < 0 || painScore > 10) {
+      setError('Pain score must be between 0 and 10.');
+      return;
+    }
+
+    if (news2Score < 0 || news2Score > 17) {
+      setError('NEWS2 score must be between 0 and 17.');
+      return;
+    }
+
+    // Send the updated observations back through the normal reassessment
+    // endpoint. The server will rebuild derived features and run the final
+    // ensemble again using the new state.
     runAction(
       'reassess',
-      () => api.post(`/patients/${id}/reassess`),
+      () =>
+        api.post(`/patients/${id}/reassess`, {
+          chiefComplaint: reassessmentForm.chiefComplaint.trim(),
+          mentalStatus: reassessmentForm.mentalStatus,
+          vitals: {
+            heartRate: toNumberOrNull(reassessmentForm.heartRate),
+            respiratoryRate: toNumberOrNull(reassessmentForm.respiratoryRate),
+            systolicBP: toNumberOrNull(reassessmentForm.systolicBP),
+            diastolicBP: toNumberOrNull(reassessmentForm.diastolicBP),
+            temperature: toNumberOrNull(reassessmentForm.temperature),
+            spo2: toNumberOrNull(reassessmentForm.spo2),
+            painScore
+          },
+          modelFeatures: {
+            ...patient.modelFeatures,
+            gcs_total: gcsTotal,
+            news2_score: news2Score,
+            mental_status_triage: reassessmentForm.mentalStatus
+          }
+        }),
       'Patient reassessed successfully.'
-    );
+    ).then(() => setIsReassessOpen(false));
+  };
 
   const confirmOverride = async () => {
     if (!overrideForm.targetEsi) {
@@ -375,18 +490,197 @@ export default function PatientDetail() {
             <button
               type="button"
               className="secondary-button"
-              onClick={reassessPatient}
+              onClick={openReassessment}
               disabled={Boolean(busyAction)}
             >
-              <RefreshCcw
-                size={15}
-                className={busyAction === 'reassess' ? 'spin' : ''}
-              />
-              {busyAction === 'reassess' ? 'Reassessing…' : 'Reassess'}
+              <RefreshCcw size={15} />
+              Reassess
             </button>
           </div>
         </div>
       </section>
+
+      {/* Reassessment captures new bedside observations before scoring again. */}
+      <Modal
+        open={isReassessOpen}
+        title="Clinical reassessment"
+        onClose={() => {
+          if (!busyAction) setIsReassessOpen(false);
+        }}
+      >
+        <div className="reassess-intro">
+          Enter the patient's latest observed values. The system will run the
+          triage model again using these updated observations and compare the
+          result with the previous assessment.
+        </div>
+
+        <div className="form-stack reassess-form">
+          <label>
+            Current chief complaint
+            <textarea
+              rows="3"
+              value={reassessmentForm.chiefComplaint}
+              onChange={event =>
+                updateReassessmentField('chiefComplaint', event.target.value)
+              }
+              placeholder="Describe any change since the last assessment…"
+            />
+          </label>
+
+          <label>
+            Mental status
+            <select
+              value={reassessmentForm.mentalStatus}
+              onChange={event =>
+                updateReassessmentField('mentalStatus', event.target.value)
+              }
+            >
+              <option>Alert and oriented</option>
+              <option>Alert</option>
+              <option>Confused</option>
+              <option>Drowsy</option>
+              <option>Agitated</option>
+              <option>Unresponsive</option>
+            </select>
+          </label>
+
+          <div className="form-grid two">
+            <label>
+              Heart rate
+              <input
+                type="number"
+                step="0.1"
+                value={reassessmentForm.heartRate}
+                onChange={event =>
+                  updateReassessmentField('heartRate', event.target.value)
+                }
+              />
+            </label>
+
+            <label>
+              Respiratory rate
+              <input
+                type="number"
+                step="0.1"
+                value={reassessmentForm.respiratoryRate}
+                onChange={event =>
+                  updateReassessmentField('respiratoryRate', event.target.value)
+                }
+              />
+            </label>
+
+            <label>
+              Systolic BP
+              <input
+                type="number"
+                step="0.1"
+                value={reassessmentForm.systolicBP}
+                onChange={event =>
+                  updateReassessmentField('systolicBP', event.target.value)
+                }
+              />
+            </label>
+
+            <label>
+              Diastolic BP
+              <input
+                type="number"
+                step="0.1"
+                value={reassessmentForm.diastolicBP}
+                onChange={event =>
+                  updateReassessmentField('diastolicBP', event.target.value)
+                }
+              />
+            </label>
+
+            <label>
+              Temperature °C
+              <input
+                type="number"
+                step="0.1"
+                value={reassessmentForm.temperature}
+                onChange={event =>
+                  updateReassessmentField('temperature', event.target.value)
+                }
+              />
+            </label>
+
+            <label>
+              SpO₂ %
+              <input
+                type="number"
+                step="0.1"
+                value={reassessmentForm.spo2}
+                onChange={event =>
+                  updateReassessmentField('spo2', event.target.value)
+                }
+              />
+            </label>
+
+            <label>
+              Pain score
+              <input
+                type="number"
+                min="0"
+                max="10"
+                value={reassessmentForm.painScore}
+                onChange={event =>
+                  updateReassessmentField('painScore', event.target.value)
+                }
+              />
+            </label>
+
+            <label>
+              GCS total
+              <input
+                type="number"
+                min="3"
+                max="15"
+                value={reassessmentForm.gcsTotal}
+                onChange={event =>
+                  updateReassessmentField('gcsTotal', event.target.value)
+                }
+              />
+            </label>
+
+            <label>
+              NEWS2 score
+              <input
+                type="number"
+                min="0"
+                max="17"
+                value={reassessmentForm.news2Score}
+                onChange={event =>
+                  updateReassessmentField('news2Score', event.target.value)
+                }
+              />
+            </label>
+          </div>
+
+          <div className="reassess-note">
+            <RefreshCcw size={14} />
+            <span>
+              These values are stored as a new assessment. A worsening result
+              can trigger deterioration handling and a queue re-rank.
+            </span>
+          </div>
+
+          <button
+            type="button"
+            className="primary-button"
+            onClick={confirmReassessment}
+            disabled={busyAction === 'reassess'}
+          >
+            <RefreshCcw
+              size={15}
+              className={busyAction === 'reassess' ? 'spin' : ''}
+            />
+            {busyAction === 'reassess'
+              ? 'Running reassessment…'
+              : 'Run reassessment'}
+          </button>
+        </div>
+      </Modal>
 
       <Modal
         open={isOverrideOpen}
