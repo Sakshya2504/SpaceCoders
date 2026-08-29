@@ -1,0 +1,73 @@
+/*
+ * Small visual refinements live here instead of being mixed into the large
+ * legacy stylesheet. This keeps the main theme stable while giving the active
+ * portal a cleaner hierarchy and more predictable interaction states.
+ */
+
+.topbar-heading {
+  min-width: 0;
+}
+
+.topbar-heading h1 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.health-pill {
+  transition: border-color 0.18s ease, background 0.18s ease, color 0.18s ease;
+}
+
+.health-pill .health-dot {
+  background: currentColor;
+}
+
+.health-pill.health-online {
+  color: #157a5b;
+  background: #f3fbf8;
+  border-color: #d6eee5;
+}
+
+.health-pill.health-warning {
+  color: #9c6716;
+  background: #fffaf1;
+  border-color: #f0dfbd;
+}
+
+.health-pill.health-offline {
+  color: #a13d4d;
+  background: #fff5f7;
+  border-color: #efd7dd;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 3px solid rgba(102, 85, 232, 0.22);
+  outline-offset: 2px;
+}
+
+.panel,
+.kpi-card,
+.recommendation,
+.action-card,
+.health-pill,
+.user-chip,
+.icon-button,
+.alert-bell {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 900px) {
+  .topbar-heading h1 {
+    max-width: 42vw;
+  }
+}
+
+@media (max-width: 640px) {
+  .topbar-heading h1 {
+    max-width: 48vw;
+  }
+}
