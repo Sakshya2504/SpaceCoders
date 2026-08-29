@@ -2,12 +2,12 @@ import { ArrowRight, Calculator, ClipboardPlus, Info } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api';
+import { getApiMessage, getCreatedPatientId } from '../utils/patientWorkflow';
 
 /*
- * The form mirrors the useful input features represented in train.csv.
- * Identifiers and post-triage outcomes are intentionally not entered by staff:
- * patient_id is generated, arrival context is derived, and disposition/ED LOS
- * are excluded because they occur after the triage decision.
+ * The intake form mirrors the clinician-facing portion of the training data.
+ * The server remains the source of truth for feature construction and model
+ * inference; this page only prepares a complete, readable request payload.
  */
 const INITIAL_FORM = {
   firstName: '',
@@ -52,16 +52,27 @@ const OPTIONS = {
   painLocation: ['extremity', 'abdomen', 'multiple', 'back', 'unknown', 'head', 'chest', 'none', 'pelvis'],
   mentalStatusTriage: ['drowsy', 'alert', 'unresponsive', 'agitated', 'confused'],
   chiefComplaintSystem: [
-    'neurological', 'genitourinary', 'other', 'dermatological', 'psychiatric',
-    'trauma', 'ENT', 'ophthalmic', 'endocrine', 'gastrointestinal', 'infectious',
-    'respiratory', 'musculoskeletal', 'cardiovascular'
+    'neurological',
+    'genitourinary',
+    'other',
+    'dermatological',
+    'psychiatric',
+    'trauma',
+    'ENT',
+    'ophthalmic',
+    'endocrine',
+    'gastrointestinal',
+    'infectious',
+    'respiratory',
+    'musculoskeletal',
+    'cardiovascular'
   ]
 };
 
-const toNumber = value => {
+function toNumber(value) {
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
-};
+}
 
 function getAgeGroup(age) {
   if (age <= 12) return 'pediatric';
@@ -96,6 +107,7 @@ export default function Intake() {
   const [form, setForm] = useState(INITIAL_FORM);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
 
   const updateField = (field, value) => {
     setForm(current => ({ ...current, [field]: value }));
@@ -121,6 +133,7 @@ export default function Intake() {
   const submit = async event => {
     event.preventDefault();
     setError('');
+    setSuccess('');
 
     if (!form.firstName.trim() || !form.lastName.trim() || !form.chiefComplaint.trim()) {
       setError('Please complete the patient name and chief complaint.');
@@ -161,9 +174,8 @@ export default function Intake() {
           spo2: toNumber(form.spo2),
           painScore: toNumber(form.painScore)
         },
-
-        // This object intentionally follows the training column names so the
-        // future XGBoost inference service receives a stable feature contract.
+        // These are the raw training-style fields supplied by the form. The
+        // server rebuilds the engineered 52-feature vector before inference.
         modelFeatures: {
           site_id: 'SITE-DEMO-01',
           triage_nurse_id: 'NURSE-DEMO',
@@ -205,9 +217,25 @@ export default function Intake() {
       };
 
       const response = await api.post('/patients', payload);
-      navigate(`/patients/${response.data.data.patientId}`);
+      const patientId = getCreatedPatientId(response);
+
+      if (!patientId) {
+        throw new Error('Patient was created, but the server did not return a patient identifier.');
+      }
+
+      setSuccess(`Patient ${patientId} created. Opening the clinical review…`);
+
+      // Let the success state paint before moving to the persisted patient record.
+      window.setTimeout(() => {
+        navigate(`/patients/${patientId}`);
+      }, 150);
     } catch (requestError) {
-      setError(requestError.response?.data?.message || 'Unable to create patient');
+      setError(
+        getApiMessage(
+          requestError,
+          'Unable to create patient. Check that the API and database are running.'
+        )
+      );
     } finally {
       setBusy(false);
     }
@@ -223,6 +251,15 @@ export default function Intake() {
         </div>
         <ClipboardPlus size={32} aria-hidden="true" />
       </section>
+
+      {error && <div className="error-banner" role="alert">{error}</div>}
+
+      {success && (
+        <div className="success-banner" role="status">
+          <ArrowRight size={14} />
+          {success}
+        </div>
+      )}
 
       <div className="info-box">
         <Info size={14} />
@@ -248,6 +285,7 @@ export default function Intake() {
         <div className="section-heading" style={{ marginTop: 24 }}>
           <h3>Arrival & presentation</h3>
         </div>
+
         <div className="form-grid four">
           <label>Arrival mode<select value={form.arrivalMode} onChange={event => updateField('arrivalMode', event.target.value)}>{OPTIONS.arrivalMode.map(option => <option key={option}>{option}</option>)}</select></label>
           <label>Language<select value={form.language} onChange={event => updateField('language', event.target.value)}>{OPTIONS.language.map(option => <option key={option}>{option}</option>)}</select></label>
@@ -266,6 +304,7 @@ export default function Intake() {
         <div className="section-heading" style={{ marginTop: 24 }}>
           <h3>Bedside measurements</h3>
         </div>
+
         <div className="form-grid four">
           <label>Heart rate<input type="number" step="0.1" value={form.heartRate} onChange={event => updateField('heartRate', event.target.value)} /></label>
           <label>Respiratory rate<input type="number" step="0.1" value={form.respiratoryRate} onChange={event => updateField('respiratoryRate', event.target.value)} /></label>
@@ -290,6 +329,7 @@ export default function Intake() {
         <div className="section-heading" style={{ marginTop: 24 }}>
           <h3>History & context</h3>
         </div>
+
         <div className="form-grid four">
           <label>Prior ED visits (12m)<input type="number" min="0" value={form.priorEdVisits} onChange={event => updateField('priorEdVisits', event.target.value)} /></label>
           <label>Prior admissions (12m)<input type="number" min="0" value={form.priorAdmissions} onChange={event => updateField('priorAdmissions', event.target.value)} /></label>
@@ -310,17 +350,15 @@ export default function Intake() {
         )}
 
         <div className="form-grid three" style={{ marginTop: 12 }}>
-          <label>Conditions<input value={form.conditions} onChange={event => updateField('conditions', event.target.value)} placeholder="comma separated" /></label>
-          <label>Medications<input value={form.medications} onChange={event => updateField('medications', event.target.value)} placeholder="comma separated" /></label>
-          <label>Allergies<input value={form.allergies} onChange={event => updateField('allergies', event.target.value)} placeholder="comma separated" /></label>
+          <label>Conditions<input value={form.conditions} onChange={event => updateField('conditions', event.target.value)} placeholder="e.g. hypertension, asthma" /></label>
+          <label>Medications<input value={form.medications} onChange={event => updateField('medications', event.target.value)} placeholder="Comma separated" /></label>
+          <label>Allergies<input value={form.allergies} onChange={event => updateField('allergies', event.target.value)} placeholder="Comma separated" /></label>
         </div>
-
-        {error && <div className="error-banner" role="alert">{error}</div>}
 
         <div className="form-actions">
           <span className="muted">AI is advisory. The clinician remains responsible for the final triage decision.</span>
           <button className="primary-button" disabled={busy} type="submit">
-            {busy ? 'Scoring…' : 'Create & score patient'}
+            {busy ? 'Creating patient…' : 'Create & score patient'}
             {!busy && <ArrowRight size={15} />}
           </button>
         </div>
