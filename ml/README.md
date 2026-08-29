@@ -1,286 +1,330 @@
-# XGBoost Triage-Acuity Pipeline
+# Final triage ensemble
 
-This directory contains the reproducible training and inference components for the PatientTriage.ai prototype.
+This directory contains the runtime integration for the final model supplied with the project.
 
-The machine-learning workflow uses the supplied `train.csv` reference dataset to predict `triage_acuity` classes 1–5. The trained model is used as decision-support evidence; it is not a clinically validated triage system.
-
-## 1. Reference dataset
-
-The supplied dataset contains:
+The supplied artifact is a **five-fold stacked ensemble** made from:
 
 ```text
-Rows:    80,000
-Columns: 40
-Target:  triage_acuity
-Classes: 1, 2, 3, 4, 5
+5 × LightGBM classifiers
+5 × XGBoost classifiers
+          ↓
+LogisticRegression meta-model
+          ↓
+       ESI 1–5
 ```
 
-### Dataset columns
+The ensemble is trained to predict `triage_acuity` and returns class probabilities plus the highest-probability ESI class.
+
+> **Prototype boundary:** the supplied model uses synthetic/reference data and is not clinically validated. It must not be used for unsupervised patient-care decisions.
+
+## 1. Supplied model artifact
+
+Required local file:
 
 ```text
-patient_id
-site_id
-triage_nurse_id
-arrival_mode
-arrival_hour
-arrival_day
-arrival_month
-arrival_season
-shift
-age
-age_group
-sex
-language
-insurance_type
-transport_origin
-pain_location
-mental_status_triage
-chief_complaint_system
-num_prior_ed_visits_12m
-num_prior_admissions_12m
-num_active_medications
-num_comorbidities
-systolic_bp
-diastolic_bp
-mean_arterial_pressure
-pulse_pressure
-heart_rate
-respiratory_rate
-temperature_c
-spo2
-gcs_total
-pain_score
-weight_kg
-height_cm
-bmi
+ml/artifacts/triage_ensemble_model.pkl
+```
+
+Expected SHA-256:
+
+```text
+8a22c60268cb26fab39935cbd087c74568658db32da26f99f662559288d06ccc
+```
+
+The source repository intentionally does not store this binary model. See `ml/artifacts/README.md` for installation instructions.
+
+## 2. Source of truth for inference
+
+The uploaded final notebook defines the production path used by the artifact:
+
+```text
+Raw patient dataframe
+       ↓
+Advanced clinical feature engineering
+       ↓
+Exact feature-column ordering from artifact
+       ↓
+Fold-specific categorical mappings
+       ↓
+5 LightGBM probabilities + 5 XGBoost probabilities
+       ↓
+LogisticRegression stacking model
+       ↓
+ESI + probability distribution + confidence
+```
+
+`ml/model_runner.py` is the application runtime implementation of that same inference flow.
+
+## 3. Feature contract
+
+The artifact contains **52 prediction columns**. The runtime does not maintain a competing hard-coded list; it reads the canonical order from:
+
+```python
+artifacts["features"]
+```
+
+The feature set includes the raw clinical/context fields plus engineered values such as:
+
+```text
+ed_volume_last_2h
 shock_index
-news2_score
-disposition
-ed_los_hours
-triage_acuity
+pulse_pressure
+mean_arterial_pressure
+rox_index
+bsa
+bmi
+hr_dev
+sys_bp_dev
+temp_dev
+spo2_deficit
+composite_vital_deviation
+sirs_score
+age_shock_risk
+age_sirs_risk
+flag_hypoxia
+flag_tachycardia
+flag_hypotension
+flag_fever
+total_red_flags
+hour_sin
+hour_cos
 ```
 
-## 2. Leakage control
+The application excludes identifiers and post-triage outcomes before inference. The uploaded training code removes columns such as `patient_id`, `site_id`, `triage_nurse_id`, timestamps, `disposition`, `ed_los_hours` and `triage_acuity` from the estimator input.
 
-The training script deliberately removes four fields before fitting the model:
+## 4. Important categorical handling
 
-| Column | Treatment | Reason |
-|---|---|---|
-| `patient_id` | Excluded | Identifier only. |
-| `disposition` | Excluded | Outcome generated after/around the triage process. |
-| `ed_los_hours` | Excluded | Post-triage outcome with leakage risk. |
-| `triage_acuity` | Target | This is what the model predicts. |
+Each training fold stores its own categorical vocabularies under `cat_mappings`.
 
-This leaves 36 feature columns for model inference.
+During inference the runtime:
 
-## 3. Preprocessing
+1. loads the fold's categories;
+2. converts missing values to `Missing`;
+3. converts unknown values to `Unseen`;
+4. recreates a pandas categorical column with the saved categories;
+5. predicts with both base-model families.
 
-The training script keeps preprocessing inside the same scikit-learn pipeline as the classifier so training and inference use identical transformations.
+This is required for consistency with the supplied artifact.
 
-### Numeric features
+## 5. Evaluation supplied with the model
 
-- Missing values are median-imputed.
-
-### Categorical features
-
-- Missing values are filled with the most frequent category.
-- Categories are one-hot encoded.
-- Unknown categories encountered during inference are ignored rather than causing a crash.
-
-The persisted `joblib` artifact therefore contains both preprocessing and the XGBoost model.
-
-## 4. Model choice
-
-The prototype uses XGBoost as a five-class classifier.
-
-The dataset contains a mixture of numeric and categorical variables and can contain nonlinear relationships among clinical and contextual features. XGBoost provides a practical tree-based baseline while keeping the inference API straightforward.
-
-## 5. Model configuration
-
-Current training configuration:
+The uploaded training/test output reports:
 
 ```text
-Objective:           multi:softprob
-Number of classes:   5
-Estimators:          300
-Max depth:           6
-Learning rate:       0.08
-Subsample:           0.85
-Column sampling:     0.85
-L2 regularization:   2.0
-Tree method:         histogram
-Random state:        42
+Overall test accuracy:                 86.15%
+High-confidence accuracy (>= 75%):    92.54%
+High-confidence coverage:             81.79%
+High-confidence cases:              13087 / 16000
 ```
 
-The exact values are prototype settings and are not presented as optimal clinical-model parameters.
+These figures are reported from the supplied experiment and should not be interpreted as clinical validation.
 
-## 6. Train the model
+## 6. Dependencies
+
+Install the versions required to load the persisted estimators:
+
+```powershell
+python -m pip install -r ml/requirements-inference.txt
+```
+
+The runtime requires:
+
+```text
+FastAPI
+Uvicorn
+joblib
+pandas
+NumPy
+scikit-learn
+XGBoost
+LightGBM
+```
+
+The scikit-learn version is constrained around the version used when the artifact was created to reduce pickle compatibility problems.
+
+## 7. Start the inference service
 
 From the repository root:
 
-```bash
-python -m pip install -r ml/requirements.txt
-python ml/train_xgboost.py --data train.csv
-```
-
-The script should create the following artifacts under `ml/artifacts/`:
-
-```text
-triage_xgb_pipeline.joblib
-metrics.json
-confusion_matrix.csv
-feature_importance.csv
-```
-
-The binary model artifact is ignored by Git and should be generated locally from the reference dataset.
-
-## 7. Recorded prototype evaluation
-
-The recorded experiment used an 80/20 stratified split:
-
-```text
-Training set: 64,000
-Test set:      16,000
-```
-
-Recorded metrics:
-
-| Metric | Result |
-|---|---:|
-| Accuracy | 85.26% |
-| Balanced accuracy | 86.72% |
-| Macro F1 | 86.95% |
-| Weighted F1 | 85.31% |
-
-Per-class results from the recorded run:
-
-| ESI class | Precision | Recall | F1 |
-|---|---:|---:|---:|
-| 1 | 96.14% | 92.86% | 94.47% |
-| 2 | 97.25% | 97.28% | 97.27% |
-| 3 | 89.49% | 87.86% | 88.67% |
-| 4 | 75.75% | 77.37% | 76.55% |
-| 5 | 77.30% | 78.25% | 77.77% |
-
-These figures describe the supplied dataset experiment only. They do not establish clinical accuracy, safety or generalization to another institution.
-
-## 8. Feature importance
-
-The recorded model run highlighted features such as:
-
-```text
-news2_score
-gcs_total
-pain_score
-mental_status_triage
-spo2
-num_prior_ed_visits_12m
-temperature_c
-respiratory_rate
-heart_rate
-mean_arterial_pressure
-```
-
-Feature importance is model evidence, not a causal explanation of patient risk.
-
-## 9. Dataset-aligned application contract
-
-The React Patient Intake page captures the feature families needed by the model and stores them under `modelFeatures`.
-
-Derived values include:
-
-```text
-age_group
-arrival_hour
-arrival_day
-arrival_month
-arrival_season
-shift
-mean_arterial_pressure
-pulse_pressure
-bmi
-shock_index
-```
-
-The application generates the patient identifier rather than asking staff to enter `patient_id` manually.
-
-## 10. Inference service
-
-`ml/inference_service.py` wraps the persisted pipeline in a small FastAPI application.
-
-Start it with:
-
-```bash
-python -m pip install -r ml/requirements-inference.txt
+```powershell
 uvicorn ml.inference_service:app --host 127.0.0.1 --port 8000
 ```
 
-Endpoints:
+Health endpoint:
 
 ```text
-GET  /health
-POST /predict
+GET http://127.0.0.1:8000/health
 ```
 
-`POST /predict` expects all 36 model feature columns. It returns:
+A healthy service reports:
 
-```text
-model
-modelVersion
-esi
-probabilities
-confidence
+```json
+{
+  "ok": true,
+  "model": "LightGBM + XGBoost Ensemble",
+  "modelVersion": "triage-ensemble-v1",
+  "featureCount": 52,
+  "foldCount": 5
+}
 ```
 
-## 11. Runtime safety boundary
-
-The Node application calls the inference service through `scorePatient()` when it is available.
-
-The result is then subject to application-level safety logic:
+## 8. Prediction endpoint
 
 ```text
-XGBoost evidence
+POST http://127.0.0.1:8000/predict
+```
+
+Request:
+
+```json
+{
+  "features": {
+    "arrival_mode": "walk-in",
+    "arrival_hour": 14,
+    "arrival_day": "Thursday",
+    "arrival_month": 8,
+    "arrival_season": "summer",
+    "shift": "afternoon",
+    "age": 42,
+    "age_group": "middle_aged",
+    "sex": "M",
+    "language": "English",
+    "insurance_type": "unknown",
+    "transport_origin": "home",
+    "pain_location": "chest",
+    "mental_status_triage": "alert",
+    "chief_complaint_system": "cardiovascular",
+    "num_prior_ed_visits_12m": 0,
+    "num_prior_admissions_12m": 0,
+    "num_active_medications": 0,
+    "num_comorbidities": 0,
+    "systolic_bp": 120,
+    "diastolic_bp": 80,
+    "heart_rate": 90,
+    "respiratory_rate": 18,
+    "temperature_c": 37,
+    "spo2": 98,
+    "gcs_total": 15,
+    "pain_score": 3,
+    "weight_kg": 70,
+    "height_cm": 170,
+    "news2_score": 0,
+    "ed_volume_last_2h": 0
+  }
+}
+```
+
+The service adds the remaining engineered features before calling the persisted estimator.
+
+Response:
+
+```json
+{
+  "model": "LightGBM + XGBoost Ensemble",
+  "modelVersion": "triage-ensemble-v1",
+  "esi": 3,
+  "confidence": 86.0,
+  "probabilities": {
+    "ESI 1": 0.01,
+    "ESI 2": 0.05,
+    "ESI 3": 0.86,
+    "ESI 4": 0.06,
+    "ESI 5": 0.02
+  }
+}
+```
+
+## 9. Node.js integration
+
+The Node triage engine calls:
+
+```text
+${ML_INFERENCE_URL}/predict
+```
+
+By default:
+
+```env
+ML_INFERENCE_URL=http://127.0.0.1:8000
+```
+
+The model result is stored with the patient assessment so the application can distinguish:
+
+```text
+model recommendation
+model confidence
+model probabilities
+model version
+model source
+```
+
+The clinician still controls the final decision through **Accept** or **Override**.
+
+## 10. Safety boundary
+
+The final ensemble is not the only triage signal. The Node service applies its independent safety layer after model inference:
+
+```text
+Final ensemble
       ↓
-Independent red-flag detectors
+Independent red flags
       ↓
-Confidence / completeness checks
+Confidence / completeness
       ↓
-Final recommendation state
+Recommendation
+      ↓
+Clinician decision
 ```
 
-Possible application actions include:
+This preserves immediate escalation, uncertainty handling and fail-open behavior even when the model is unavailable.
+
+## 11. Fail-open behavior
+
+When FastAPI is unavailable, times out or cannot load the artifact:
 
 ```text
-AUTO_CONTEXT
-IMMEDIATE_ESCALATION
-ABSTAIN_AND_ESCALATE
-FAIL_OPEN
+Model unavailable
+      ↓
+Node catches inference failure
+      ↓
+Deterministic prototype scorer
+      ↓
+Workflow remains available
 ```
 
-The model itself does not write the final clinician decision.
+The response records the source so a model result is not silently confused with a fallback result.
 
-## 12. Inference failure
+## 12. Consistency verification
 
-The Python service is deliberately not a single point of failure for the Node workflow.
+The supplied `triage_predictions_output.csv` was generated with the uploaded artifact and feature builder. Re-running the same inference logic locally reproduced the reference predictions and confidence values for the provided sample rows.
 
-If the service is offline, times out or rejects inference, the Node application can use the deterministic prototype scorer and expose the recommendation source for traceability.
+That confirms implementation consistency with the supplied artifact; it does not establish model quality or clinical validity.
 
-This architecture keeps model availability separate from core workflow availability.
+## 13. Compatibility note
 
-## 13. Future model governance
+Pickle/joblib model artifacts depend on compatible Python and ML-library versions. The supplied artifact was created with a scikit-learn 1.6.1 environment. Keep the inference environment pinned and avoid silently upgrading model-runtime dependencies.
 
-Before a real deployment, the training process should be expanded to include:
+If loading fails after dependency changes, restore the documented versions or deliberately rebuild/export the model with the new environment.
 
-- clinical validation;
-- probability calibration;
-- subgroup and bias analysis;
-- temporal validation;
-- drift monitoring;
-- model registry/versioning;
-- reproducibility metadata;
-- approval/change-control workflow;
-- SHAP or another validated explanation layer where appropriate.
+## 14. Training code
 
-## 14. Safety notice
+`ml/train_xgboost.py` is retained from the earlier prototype pipeline for reference. It is **not** the source of truth for the supplied `triage_ensemble_model.pkl` artifact.
 
-This XGBoost pipeline is a technical prototype trained on synthetic/reference data. It must not be used to make unsupervised medical decisions.
+For the final application integration, the source of truth is:
+
+```text
+Train_Model_Code.ipynb
+triage_ensemble_model.pkl
+triage_predictions_output.csv
+```
+
+and the executable runtime translation is:
+
+```text
+ml/model_runner.py
+ml/inference_service.py
+```
+
+## 15. Production work still required
+
+Before a real deployment, this prototype would require clinical validation, temporal and external validation, probability calibration, subgroup/fairness analysis, model governance, secure model distribution, monitoring, change control, human-factors review and any applicable regulatory assessment.
