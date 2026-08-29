@@ -15,6 +15,17 @@ const ACTION_CLASSES = {
   FAIL_OPEN: 'action-manual'
 };
 
+// These short descriptions translate the numeric ESI output into language that
+// is easier to scan during a clinical review. They describe the prototype's
+// intended interpretation and are not a substitute for the official ESI manual.
+const ESI_DESCRIPTIONS = {
+  1: 'Immediate intervention: assess for a critical presentation requiring life-saving care.',
+  2: 'High-risk and time-sensitive: prompt clinician review is recommended.',
+  3: 'Currently stable, but significant evaluation or treatment resources may be needed.',
+  4: 'Lower acuity: the current presentation appears stable with limited expected resource needs.',
+  5: 'Minimal acuity: the available information suggests a stable presentation with minimal expected resource needs.'
+};
+
 /**
  * Shows the Emergency Severity Index recommendation.
  * Unknown/null values intentionally render as an em dash instead of
@@ -23,10 +34,19 @@ const ACTION_CLASSES = {
 export function EsiBadge({ esi }) {
   const value = Number.isFinite(Number(esi)) ? Number(esi) : null;
   const className = value ? `esi-badge esi-${value}` : 'esi-badge esi-na';
+  const description = value ? ESI_DESCRIPTIONS[value] : 'Acuity is not available yet.';
 
   return (
-    <span className={className} aria-label={value ? `ESI ${value}` : 'ESI not available'}>
-      ESI {value ?? '—'}
+    <span
+      className={className}
+      aria-label={value ? `ESI ${value}. ${description}` : 'ESI not available'}
+    >
+      <span>ESI {value ?? '—'}</span>
+      {value && (
+        <span className="esi-description" aria-hidden="true">
+          {description}
+        </span>
+      )}
     </span>
   );
 }
