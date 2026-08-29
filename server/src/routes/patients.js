@@ -83,12 +83,11 @@ router.post(
         );
       }
 
-      // The browser can provide modelFeatures, but the server persists and
-      // validates the resulting feature contract before it is used for scoring.
       const patient = await Patient.create({
         patientId: body.patientId || buildPatientId(),
         ...body,
         extractedSymptoms: extractClinicalSignals(body.chiefComplaint),
+        clinicianDecision: 'PENDING',
         status: 'WAITING',
         queueStatus: 'WAITING'
       });
@@ -271,19 +270,47 @@ router.post(
         return fail(res, 'Patient not found', 'PATIENT_NOT_FOUND', null, 404);
       }
 
+      const acceptedEsi = patient.triage?.esi || patient.finalEsi;
+
+      if (!acceptedEsi) {
+        return fail(
+          res,
+          'There is no triage recommendation to accept. Reassess or complete triage first.',
+          'NO_TRIAGE_RECOMMENDATION',
+          null,
+          409
+        );
+      }
+
       patient.manualEsi = null;
-      patient.finalEsi = patient.triage?.esi || patient.finalEsi;
+      patient.finalEsi = acceptedEsi;
+      patient.clinicianDecision = 'ACCEPTED';
+      patient.clinicianDecisionAt = new Date();
+      patient.clinicianDecisionBy = req.user._id.toString();
+
       await patient.save();
+      await reorderQueue();
 
       await appendAudit({
         eventType: 'CLINICIAN_ACCEPTED',
         patientId: patient.patientId,
         actorId: req.user._id.toString(),
         actorRole: req.user.role,
-        payload: { esi: patient.finalEsi }
+        payload: {
+          esi: patient.finalEsi,
+          decision: 'ACCEPTED'
+        }
       });
 
-      io(req)?.emit('queue:updated', { reason: 'accepted' });
+      io(req)?.emit('queue:updated', {
+        reason: 'accepted',
+        patientId: patient.patientId
+      });
+      io(req)?.emit('decision:accepted', {
+        patientId: patient.patientId,
+        esi: patient.finalEsi
+      });
+
       return ok(res, patient, 'Recommendation accepted');
     } catch (error) {
       next(error);
@@ -326,6 +353,9 @@ router.post(
       patient.overrideNote = note;
       patient.manualEsi = Number(targetEsi);
       patient.finalEsi = Number(targetEsi);
+      patient.clinicianDecision = 'OVERRIDDEN';
+      patient.clinicianDecisionAt = new Date();
+      patient.clinicianDecisionBy = req.user._id.toString();
       patient.safeMaxWaitMinutes = getSafeMaxWait(targetEsi);
 
       await patient.save();
@@ -344,7 +374,10 @@ router.post(
         patientId: patient.patientId,
         targetEsi: Number(targetEsi)
       });
-      io(req)?.emit('queue:updated', { reason: 'override' });
+      io(req)?.emit('queue:updated', {
+        reason: 'override',
+        patientId: patient.patientId
+      });
 
       return ok(res, patient, 'Override recorded');
     } catch (error) {
@@ -366,6 +399,7 @@ router.post(
 
       const previousEsi = patient.finalEsi || patient.triage?.esi || 5;
       const scored = await scorePatient({ ...patient.toObject(), ...req.body });
+      const previousDecision = patient.clinicianDecision;
 
       patient.triage = {
         ...scored,
@@ -380,6 +414,16 @@ router.post(
       patient.nextReassessmentAt = new Date(
         Date.now() + (patient.surgeMode ? 60000 : 300000)
       );
+
+      // A fresh recommendation needs fresh human acknowledgement. Keep an
+      // existing clinician override intact as the current final decision, but
+      // otherwise return the decision state to PENDING.
+      if (patient.manualEsi == null && previousDecision !== 'OVERRIDDEN') {
+        patient.clinicianDecision = 'PENDING';
+        patient.clinicianDecisionAt = undefined;
+        patient.clinicianDecisionBy = undefined;
+      }
+
       patient.assessments.push({
         ...scored,
         generatedAt: new Date(scored.timestamp),
@@ -394,7 +438,11 @@ router.post(
         patientId: patient.patientId,
         actorId,
         actorRole: req.user.role,
-        payload: { previousEsi, newEsi: scored.esi, modelSource: scored.modelSource }
+        payload: {
+          previousEsi,
+          newEsi: scored.esi,
+          modelSource: scored.modelSource
+        }
       });
 
       if (patient.deteriorationDetected) {
@@ -440,6 +488,9 @@ router.post(
 
       patient.manualEsi = Number(esi);
       patient.finalEsi = Number(esi);
+      patient.clinicianDecision = 'OVERRIDDEN';
+      patient.clinicianDecisionAt = new Date();
+      patient.clinicianDecisionBy = req.user._id.toString();
       patient.status = 'WAITING';
       await patient.save();
 
@@ -451,7 +502,10 @@ router.post(
         payload: { esi: Number(esi) }
       });
 
-      io(req)?.emit('queue:updated', { reason: 'manual triage' });
+      io(req)?.emit('queue:updated', {
+        reason: 'manual triage',
+        patientId: patient.patientId
+      });
       return ok(res, patient, 'Manual triage recorded');
     } catch (error) {
       next(error);
