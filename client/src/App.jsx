@@ -8,6 +8,7 @@ import Dashboard from './pages/Dashboard';
 import Intake from './pages/Intake';
 import Login from './pages/Login';
 import PatientDetail from './pages/PatientDetail';
+import PastPatients from './pages/PastPatients';
 import Queue from './pages/Queue';
 import Signup from './pages/Signup';
 
@@ -16,8 +17,8 @@ function isAuthenticated() {
 }
 
 function ProtectedRoute({ children }) {
-  // Authentication is ultimately enforced by the API. This client-side gate
-  // only prevents an obvious flash of protected UI to logged-out visitors.
+  // This is only a presentation-level guard. The API still validates the JWT
+  // and role on every protected request.
   return isAuthenticated() ? children : <Navigate to="/login" replace />;
 }
 
@@ -25,6 +26,7 @@ function getPageTitle(pathname) {
   if (pathname.startsWith('/patients/')) return 'Patient Review';
   if (pathname === '/intake') return 'Patient Intake';
   if (pathname === '/queue') return 'Live Queue';
+  if (pathname === '/past-patients') return 'Past Patients';
   if (pathname === '/audit') return 'Audit Trail';
   return 'ED Command Centre';
 }
@@ -41,18 +43,14 @@ function Shell() {
   const user = JSON.parse(localStorage.getItem('pt_user') || 'null');
 
   useEffect(() => {
-    // Socket.IO is shared across the shell so every operational screen can
-    // receive queue and safety events without opening duplicate connections.
     socket.connect();
 
     const handleHealth = value => {
       setHealth(current => ({ ...current, ...value }));
     };
-
     const handleConnect = () => {
       setHealth(current => ({ ...current, realtime: 'CONNECTED' }));
     };
-
     const handleDisconnect = () => {
       setHealth(current => ({ ...current, realtime: 'DISCONNECTED' }));
     };
@@ -79,7 +77,6 @@ function Shell() {
   return (
     <div className="app-shell">
       <Sidebar user={user} />
-
       <main className="main-area">
         <TopBar
           title={getPageTitle(location.pathname)}
@@ -88,12 +85,12 @@ function Shell() {
           onLogout={logout}
           socket={socket}
         />
-
         <div className="page-content">
           <Routes>
             <Route path="/dashboard" element={<Dashboard health={health} />} />
             <Route path="/intake" element={<Intake />} />
             <Route path="/queue" element={<Queue />} />
+            <Route path="/past-patients" element={<PastPatients />} />
             <Route path="/patients/:id" element={<PatientDetail />} />
             <Route path="/audit" element={<Audit />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
