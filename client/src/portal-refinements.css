@@ -89,6 +89,26 @@
   gap: 12px;
 }
 
+/* Keep the chevron and label on the same baseline at every viewport size. */
+.patient-detail-page .back-row > a {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.patient-detail-page .back-row > a svg {
+  display: block;
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  transform: none;
+  vertical-align: middle;
+}
+
 .patient-detail-page .patient-header {
   min-width: 0;
   min-height: 126px;
@@ -167,6 +187,50 @@
   color: #5e6878;
   font-size: 9px;
   line-height: 1.6;
+}
+
+/* -------------------------------------------------------------
+   Reassessment history: bounded panel with its own scroll area
+   ------------------------------------------------------------- */
+.patient-detail-page .history-panel {
+  min-width: 0;
+}
+
+.patient-detail-page .history-panel .panel-head {
+  margin-bottom: 8px;
+}
+
+.patient-detail-page .history-panel .assessment-timeline {
+  max-height: 430px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 8px;
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
+}
+
+/* A quieter scrollbar keeps long assessment histories usable without
+   competing visually with the clinical content. */
+.patient-detail-page .history-panel .assessment-timeline::-webkit-scrollbar {
+  width: 7px;
+}
+
+.patient-detail-page .history-panel .assessment-timeline::-webkit-scrollbar-track {
+  background: #f4f6f9;
+  border-radius: 99px;
+}
+
+.patient-detail-page .history-panel .assessment-timeline::-webkit-scrollbar-thumb {
+  background: #cbd2dc;
+  border-radius: 99px;
+}
+
+.patient-detail-page .history-panel .assessment-timeline::-webkit-scrollbar-thumb:hover {
+  background: #b7c0cc;
+}
+
+.patient-detail-page .history-panel .assessment-item {
+  padding: 12px 0;
 }
 
 /* -------------------------------------------------------------
@@ -287,6 +351,10 @@
   .patient-detail-page .patient-header {
     gap: 16px;
   }
+
+  .patient-detail-page .history-panel .assessment-timeline {
+    max-height: 390px;
+  }
 }
 
 @media (max-width: 700px) {
@@ -321,15 +389,25 @@
     width: 100%;
     min-width: 0;
   }
+
+  .patient-detail-page .history-panel .assessment-timeline {
+    max-height: 360px;
+  }
 }
 
 @media (max-width: 480px) {
   .patient-detail-page .back-row {
     align-items: flex-start;
     flex-direction: column;
+    gap: 6px;
   }
 
   .patient-detail-page .patient-header h2 {
     font-size: 20px;
+  }
+
+  .patient-detail-page .history-panel .assessment-timeline {
+    max-height: 320px;
+    padding-right: 6px;
   }
 }
