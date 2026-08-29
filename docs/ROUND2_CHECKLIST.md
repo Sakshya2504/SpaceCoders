@@ -1,41 +1,103 @@
-# Requirements & Implementation Checklist
+# PatientTriage.ai — Implementation Checklist
 
-This document maps the requested solution capabilities to the current repository implementation. It is a traceability document for the prototype and should be read alongside `README.md`, `ARCHITECTURE.md`, `API.md`, and the ML documentation.
+This document is a practical traceability checklist for the current prototype. It maps the requested product behavior to the maintained application rather than to an earlier prototype path.
 
-| Capability | Implementation | Notes |
+| Capability | Current implementation | Verification point |
 |---|---|---|
-| Full-stack web application | `client/` + `server/` | React/Vite frontend with Node/Express backend and MongoDB. |
-| 15–20 simulated records | `server/src/seed.js` | Seed script creates 18 synthetic patients and 4 demo users. |
-| ESI 1–5 | `server/src/services/triageEngine.js` + XGBoost | Five-class recommendation is exposed as ESI 1–5. |
-| Dataset-aligned intake | `client/src/pages/Intake.jsx` + `server/src/services/modelFeatures.js` | Intake stores the model feature contract using training column names. |
-| XGBoost model | `ml/train_xgboost.py` | Reproducible five-class training pipeline. |
-| XGBoost inference | `ml/inference_service.py` + Node scorer | Optional FastAPI service returns ESI probabilities; Node retains a deterministic fallback. |
-| Confidence | `triage.confidence` + model probability | Confidence is displayed to the clinician and stored with assessments. |
-| High-sensitivity red flags | `detectRedFlags()` | Prototype sepsis-like, MI-like, stroke-like and respiratory-risk detectors. |
-| Immediate escalation | `IMMEDIATE_ESCALATION` | Positive safety signals can force escalation. |
-| Ambiguous/sparse path | `ABSTAIN_AND_ESCALATE` | Low confidence or insufficient feature completeness moves the recommendation upward. |
-| Fail-open | `FAIL_OPEN` / fallback scoring | Model unavailability does not become a hard blocker for the application workflow. |
-| Pediatric/adolescent/adult/geriatric | `getAgeBand()` + `AGE_CONFIG` | Age band is derived and used for prototype vital interpretation. |
-| Zero-history handling | `hasHistory` | Missing history reduces confidence and is visible during review. |
-| Explainability | `reasons` + `featureContributions` | Clinicians can inspect the main signals supporting the recommendation. |
-| Clinician acceptance | `/api/patients/:id/accept` | Acceptance is recorded separately from the model recommendation. |
-| Clinician override | `/api/patients/:id/override` | Requires target ESI and structured reason; event is audited. |
-| Manual triage | `/api/patients/:id/manual-triage` | Keeps workflow available when AI is unavailable. |
-| Live waiting queue | `/api/queue` + Live Queue page | Position, ESI, confidence, wait time and flags are shown. |
-| Continuous reassessment | `runQueueTick()` | Waiting patients are reassessed when due. |
-| Surge behavior | `/api/queue/surge` | Prototype monitoring cadence becomes more frequent. |
-| Realtime alerts | `AlertCenter.jsx` + Socket.IO | Escalation, deterioration, override, triage and system events are surfaced. |
-| Dashboard KPIs | `/api/dashboard/summary` | Operational overview for the command centre. |
-| Audit logging | `server/src/services/audit.js` | Important events are written with previous/current hashes. |
-| Audit verification | `/api/audit/verify` | Verifies the linked SHA-256 chain and reports first broken event. |
-| Authentication | JWT + bcryptjs | Login and signup return authenticated sessions. |
-| Role-based access | `server/src/middleware/auth.js` | Permissions are enforced server-side. |
-| Responsive frontend | `client/src/responsive.css` | Desktop, tablet and mobile layouts are supported. |
-| Human-readable source | `client/src`, `server/src`, `ml/` | Files are formatted with normal indentation and comments explaining intent. |
-| Documentation | `docs/` + `ml/` | Setup, architecture, API, security, testing, demo and ML guidance are documented. |
+| Full-stack application | `client/` + `server/` + MongoDB | Start frontend and backend together. |
+| Synthetic demo data | `server/src/seed.js` | Seed only the development database. |
+| Dataset-aligned intake | Intake page + model feature builder | Confirm training-column vocabulary is represented. |
+| ESI 1–5 recommendation | Final ensemble + triage orchestration | Patient Review shows recommendation and probabilities. |
+| Final supplied model | `ml/artifacts/triage_ensemble_model.pkl` | Verify artifact checksum and model health. |
+| Ensemble structure | 5 LightGBM + 5 XGBoost + LogisticRegression stack | `/health` reports ensemble metadata. |
+| 52-feature inference contract | Artifact-saved feature order | Runtime reads canonical `features` from artifact. |
+| Confidence | Ensemble probability + application uncertainty layer | Patient Review displays confidence/source. |
+| Independent safety detectors | `server/src/services/redFlags.js` | Verify sepsis-like, MI-like, stroke-like and respiratory-risk signals. |
+| Immediate escalation | `IMMEDIATE_ESCALATION` | Positive configured red flag takes precedence. |
+| Abstain-and-escalate | `ABSTAIN_AND_ESCALATE` | Sparse/uncertain cases remain visibly uncertain. |
+| Fail-open | Deterministic prototype fallback | Stop FastAPI and confirm workflow still functions. |
+| Human-in-the-loop | Accept / Override | Clinician action remains separate from model recommendation. |
+| Reassessment | Reassess workflow + assessment history | Previous assessments remain available. |
+| Reassessment UI | Bounded scroll history | Large histories stay inside the review panel. |
+| Patient completion | Mark service done | Completed patient leaves active workflow. |
+| Past Patients | Historical patient view | Completed patient remains available for review. |
+| Live waiting queue | Queue API + Queue page | Position, ESI, confidence, wait and flags are visible. |
+| Queue monitoring | `runQueueTick()` | Due patients are re-evaluated using the same triage path. |
+| Surge mode | Queue surge endpoint | Monitoring cadence becomes tighter. |
+| Realtime alerts | Alert Center + Socket.IO | Triage, escalation, reassessment and workflow alerts appear live. |
+| Alert scalability | Bounded scrollable alert panel | Large alert volumes do not cover the page. |
+| Dashboard | Summary + metrics endpoints | KPIs reflect current synthetic data. |
+| Audit logging | SHA-256 linked events | Important decisions are recorded. |
+| Audit verification | `/api/audit/verify` | First broken event is identified when invalid. |
+| Login | JWT + bcrypt | Seeded account signs in successfully. |
+| Signup | Default clinical role | Browser cannot self-assign privileged roles. |
+| Application IDs | Separate from MongoDB `_id` | `PT-YYYY-XXXXXX` routes do not trigger ObjectId casting. |
+| Responsive UI | Responsive/refinement styles | Test desktop, tablet and phone widths. |
+| Accessible controls | Labels + keyboard focus states | Verify focus, readable status text and disabled/loading states. |
+| Readable code | Maintained formatting and intent-focused comments | Avoid compressed one-line JSX/functions. |
+| Documentation | `docs/` + `ml/` | Setup, architecture, API, testing, demo and safety are documented. |
 
-## Important prototype limitations
+## Data-contract boundaries
 
-The checklist indicates implemented software capabilities, not clinical approval.
+The reference training dataset contains 40 columns. The application uses the clinician-relevant fields from that dataset and keeps downstream information out of predictive input.
 
-The current prototype still requires formal validation before any real-world deployment, including model calibration, subgroup evaluation, clinical workflow validation, privacy/security review, production infrastructure hardening and medical-device governance where applicable.
+```text
+patient_id      → identifier
+triage_acuity   → target
+disposition     → downstream outcome
+ed_los_hours    → downstream outcome
+```
+
+The supplied final artifact expands the relevant inputs into a 52-feature prediction representation. The runtime uses the artifact's saved feature list and categorical mappings.
+
+## Source-of-truth model files
+
+For the final application integration, the source of truth is:
+
+```text
+Train_Model_Code.ipynb
+triage_ensemble_model.pkl
+triage_predictions_output.csv
+```
+
+The repository runtime translation is:
+
+```text
+ml/model_runner.py
+ml/inference_service.py
+```
+
+The earlier `ml/train_xgboost.py` remains reference/prototype training code; it is not the source of the supplied final artifact.
+
+## Final regression smoke test
+
+```text
+[ ] MongoDB starts
+[ ] FastAPI model service starts
+[ ] Node starts on 3000
+[ ] Vite starts on 5173
+[ ] Login works
+[ ] Signup works
+[ ] Patient Intake renders every required field family
+[ ] Derived fields are calculated
+[ ] Patient creation opens Patient Review
+[ ] Supplied ensemble source/version is visible
+[ ] ESI 1–5 recommendation is shown with plain-language explanation
+[ ] Red flags are shown separately
+[ ] Accept records clinician agreement
+[ ] Override records target ESI + reason
+[ ] Reassess opens editable values and preserves history
+[ ] Queue reassessment works
+[ ] Alert center updates without refresh
+[ ] Mark service done moves patient to Past Patients
+[ ] Audit chain verifies
+[ ] Large reassessment history scrolls locally
+[ ] Mobile layout remains usable
+[ ] Frontend production build passes
+[ ] Backend tests pass
+[ ] Python syntax / ML checks pass
+```
+
+## Prototype boundary
+
+Passing this checklist confirms application behavior for the current software prototype. It does not prove clinical validity, effectiveness, fairness, regulatory compliance or suitability for unsupervised clinical use.
