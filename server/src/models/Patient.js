@@ -99,6 +99,13 @@ const patientSchema = new mongoose.Schema(
     // Keep clinician decisions separate from AI recommendations.
     manualEsi: { type: Number, min: 1, max: 5, default: null },
     finalEsi: { type: Number, min: 1, max: 5, default: null },
+    clinicianDecision: {
+      type: String,
+      enum: ['PENDING', 'ACCEPTED', 'OVERRIDDEN'],
+      default: 'PENDING'
+    },
+    clinicianDecisionAt: Date,
+    clinicianDecisionBy: String,
     status: {
       type: String,
       enum: ['WAITING', 'SEEN', 'MANUAL_TRIAGE_REQUIRED'],
