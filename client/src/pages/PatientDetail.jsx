@@ -4,17 +4,16 @@ import {
   ChevronLeft,
   RefreshCcw
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import api from '../api';
 import Modal from '../components/Modal';
 import { ActionBadge, EsiBadge, FlagBadge } from '../components/Badge';
 
 /*
- * Patient Review is where the clinician sees the model recommendation and
- * records the final human decision. Each action talks to the backend and gives
- * immediate UI feedback so a slow or unavailable model never looks like a
- * broken button.
+ * Patient Review is the point where model evidence becomes a clinician decision.
+ * The page therefore treats API actions as real state transitions, not cosmetic
+ * button clicks: each request has loading, success, and failure feedback.
  */
 export default function PatientDetail() {
   const { id } = useParams();
@@ -30,10 +29,11 @@ export default function PatientDetail() {
     note: ''
   });
 
-  const loadPatient = async () => {
+  const loadPatient = useCallback(async () => {
     const response = await api.get(`/patients/${id}`);
     setPatient(response.data.data);
-  };
+    return response.data.data;
+  }, [id]);
 
   useEffect(() => {
     loadPatient().catch(requestError => {
@@ -42,7 +42,13 @@ export default function PatientDetail() {
           'Unable to load this patient record.'
       );
     });
-  }, [id]);
+  }, [loadPatient]);
+
+  const getErrorMessage = requestError =>
+    requestError.response?.data?.message ||
+    requestError.response?.data?.error?.details ||
+    requestError.message ||
+    'The request could not be completed.';
 
   const runAction = async (actionName, request, successMessage) => {
     setBusyAction(actionName);
@@ -50,18 +56,11 @@ export default function PatientDetail() {
     setMessage('');
 
     try {
-      const response = await request();
-
-      // Always refresh the record after a decision action so the displayed ESI,
-      // audit state and queue status match what was saved by the server.
-      setPatient(response.data?.data || patient);
+      await request();
       await loadPatient();
       setMessage(successMessage);
     } catch (requestError) {
-      setError(
-        requestError.response?.data?.message ||
-          `${actionName} failed. Please try again.`
-      );
+      setError(getErrorMessage(requestError));
     } finally {
       setBusyAction('');
     }
@@ -92,12 +91,11 @@ export default function PatientDetail() {
     setMessage('');
 
     try {
-      const response = await api.post(
-        `/patients/${id}/override`,
-        overrideForm
-      );
+      await api.post(`/patients/${id}/override`, {
+        ...overrideForm,
+        targetEsi: Number(overrideForm.targetEsi)
+      });
 
-      setPatient(response.data.data);
       await loadPatient();
       setIsOverrideOpen(false);
       setOverrideForm({
@@ -107,10 +105,7 @@ export default function PatientDetail() {
       });
       setMessage('Clinician override recorded.');
     } catch (requestError) {
-      setError(
-        requestError.response?.data?.message ||
-          'Unable to record the override.'
-      );
+      setError(getErrorMessage(requestError));
     } finally {
       setBusyAction('');
     }
@@ -122,6 +117,9 @@ export default function PatientDetail() {
 
   const triage = patient.triage || {};
   const flags = triage.redFlags || {};
+  const isDecisionRecorded = ['ACCEPTED', 'OVERRIDDEN'].includes(
+    patient.clinicianDecision
+  );
 
   return (
     <div className="patient-detail-page">
@@ -161,6 +159,13 @@ export default function PatientDetail() {
         <div className="header-esi">
           <span>Final priority</span>
           <EsiBadge esi={patient.finalEsi || triage.esi} />
+          {patient.clinicianDecision && patient.clinicianDecision !== 'PENDING' && (
+            <small className="decision-state">
+              {patient.clinicianDecision === 'ACCEPTED'
+                ? 'Clinician accepted'
+                : 'Clinician override'}
+            </small>
+          )}
         </div>
       </div>
 
@@ -203,7 +208,7 @@ export default function PatientDetail() {
             </div>
             <div>
               <span>Completeness</span>
-              <strong>{triage.dataCompleteness || 0}%</strong>
+              <strong>{Math.round((triage.dataCompleteness || 0) * 100)}%</strong>
             </div>
             <div>
               <span>History</span>
@@ -284,21 +289,30 @@ export default function PatientDetail() {
           <div className="panel-head">
             <div>
               <h3>Feature contributions</h3>
-              <p>Prototype explanation layer</p>
+              <p>Model evidence and safety signals</p>
             </div>
           </div>
 
-          {(triage.featureContributions || []).map((contribution, index) => (
-            <div className="contrib-item" key={`${contribution.feature}-${index}`}>
-              <div>
-                <strong>{contribution.feature}</strong>
-                <small>{String(contribution.value)}</small>
+          {(triage.featureContributions || []).length ? (
+            (triage.featureContributions || []).map((contribution, index) => (
+              <div
+                className="contrib-item"
+                key={`${contribution.feature}-${index}`}
+              >
+                <div>
+                  <strong>{contribution.feature}</strong>
+                  <small>{String(contribution.value)}</small>
+                </div>
+                <span className="up">
+                  +{Math.round(contribution.impact || 0)}
+                </span>
               </div>
-              <span className="up">
-                +{Math.round(contribution.impact || 0)}
-              </span>
-            </div>
-          ))}
+            ))
+          ) : (
+            <p className="muted">
+              No feature-level explanation was returned for this assessment.
+            </p>
+          )}
         </section>
       </div>
 
@@ -309,12 +323,37 @@ export default function PatientDetail() {
             AI is advisory. Clinician acceptance or override is recorded.
           </p>
 
+          {isDecisionRecorded && (
+            <div className="decision-state-card" role="status">
+              <CheckCircle2 size={16} />
+              <div>
+                <strong>
+                  {patient.clinicianDecision === 'ACCEPTED'
+                    ? 'Recommendation accepted'
+                    : 'Clinician override recorded'}
+                </strong>
+                <span>
+                  {patient.clinicianDecisionAt
+                    ? new Date(patient.clinicianDecisionAt).toLocaleString()
+                    : 'Decision timestamp unavailable'}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {patient.lastReassessmentAt && (
+            <div className="reassessment-meta">
+              Last reassessment:{' '}
+              {new Date(patient.lastReassessmentAt).toLocaleString()}
+            </div>
+          )}
+
           <div className="action-buttons">
             <button
               type="button"
               className="primary-button"
               onClick={acceptRecommendation}
-              disabled={Boolean(busyAction)}
+              disabled={Boolean(busyAction) || patient.clinicianDecision === 'ACCEPTED'}
             >
               <CheckCircle2 size={15} />
               {busyAction === 'accept' ? 'Accepting…' : 'Accept'}
