@@ -13,6 +13,8 @@
     "ml:install": "python -m pip install -r ml/requirements-inference.txt",
     "ml:train": "python ml/train_xgboost.py --data train.csv",
     "ml:serve": "python -m uvicorn ml.inference_service:app --host 127.0.0.1 --port 8000",
+    "ml:verify": "python ml/verify_model_artifact.py",
+    "ml:verify:reference": "python ml/verify_model_artifact.py --predictions triage_predictions_output.csv",
     "dev:full": "concurrently \"npm run ml:serve\" \"npm run dev --prefix server\" \"npm run dev --prefix client\""
   },
   "devDependencies": {
