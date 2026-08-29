@@ -1,0 +1,354 @@
+/*
+ * Patient workflow styles are kept separate from the global theme so the
+ * reassessment, history and completion components can evolve together.
+ */
+
+.brand-mark img {
+  width: 24px;
+  height: 24px;
+  display: block;
+}
+
+.ai-suggestion-box {
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid #e2ddff;
+  border-radius: 12px;
+  background: #faf9ff;
+}
+
+.ai-suggestion-box > strong {
+  display: block;
+  color: #5744d5;
+  font-size: 10px;
+}
+
+.ai-suggestion-box p {
+  margin: 7px 0 0;
+  color: #687384;
+  font-size: 9px;
+  line-height: 1.55;
+}
+
+.probability-panel {
+  margin-top: 15px;
+  padding: 13px;
+  border: 1px solid #edf0f4;
+  border-radius: 11px;
+  background: #fbfcfd;
+}
+
+.subsection-title {
+  margin-bottom: 10px;
+  color: #657082;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: .8px;
+  text-transform: uppercase;
+}
+
+.probability-row {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr) 38px;
+  align-items: center;
+  gap: 9px;
+  margin-top: 7px;
+}
+
+.probability-row > span,
+.probability-row > strong {
+  font-size: 8px;
+}
+
+.probability-row > strong {
+  text-align: right;
+}
+
+.probability-track {
+  height: 7px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: #edf0f4;
+}
+
+.probability-fill {
+  height: 100%;
+  min-width: 2px;
+  border-radius: inherit;
+  transition: width .25s ease;
+}
+
+.history-panel,
+.dataset-panel {
+  margin-top: 14px;
+}
+
+.history-count {
+  min-width: 28px;
+  height: 28px;
+  padding: 0 8px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 9px;
+  background: #f0edff;
+  color: #6047d8;
+  font-size: 9px;
+  font-weight: 900;
+}
+
+.assessment-timeline {
+  display: flex;
+  flex-direction: column;
+}
+
+.assessment-item {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 11px;
+  padding: 13px 0;
+  border-bottom: 1px solid #eef1f4;
+}
+
+.assessment-item:last-child {
+  border-bottom: 0;
+}
+
+.assessment-dot {
+  width: 9px;
+  height: 9px;
+  margin: 5px 0 0 3px;
+  border-radius: 50%;
+  background: #6d5be6;
+  box-shadow: 0 0 0 4px #efedff;
+}
+
+.assessment-copy {
+  min-width: 0;
+}
+
+.assessment-topline,
+.assessment-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+}
+
+.assessment-topline {
+  justify-content: space-between;
+}
+
+.assessment-topline strong {
+  font-size: 9px;
+  text-transform: capitalize;
+}
+
+.assessment-topline span,
+.assessment-summary span {
+  color: #7d8795;
+  font-size: 8px;
+}
+
+.assessment-summary {
+  margin-top: 7px;
+}
+
+.assessment-copy p {
+  margin: 7px 0 0;
+  color: #727d8b;
+  font-size: 8px;
+  line-height: 1.5;
+}
+
+.dataset-table-wrap {
+  overflow: auto;
+  border: 1px solid #edf0f3;
+  border-radius: 10px;
+}
+
+.dataset-table {
+  min-width: 760px;
+}
+
+.dataset-table td:first-child strong {
+  font-size: 8px;
+}
+
+.engineered-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.engineered-item {
+  padding: 10px;
+  border: 1px solid #edf0f3;
+  border-radius: 9px;
+  background: #fbfcfd;
+}
+
+.engineered-item span {
+  display: block;
+  overflow: hidden;
+  color: #87919f;
+  font-size: 7px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.engineered-item strong {
+  display: block;
+  margin-top: 4px;
+  color: #293549;
+  font-size: 9px;
+}
+
+.decision-state-card {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 11px;
+  border: 1px solid #cfece1;
+  border-radius: 10px;
+  background: #eef9f5;
+  color: #117351;
+}
+
+.decision-state-card div,
+.completion-dialog-copy div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.decision-state-card strong,
+.completion-dialog-copy strong {
+  font-size: 9px;
+}
+
+.decision-state-card span,
+.completion-dialog-copy span {
+  color: #748190;
+  font-size: 8px;
+  line-height: 1.45;
+}
+
+.reassessment-meta {
+  margin-top: 9px;
+  color: #7a8592;
+  font-size: 8px;
+}
+
+.complete-button {
+  border: 1px solid #b8e2d3;
+  border-radius: 10px;
+  padding: 10px 13px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: #eef9f5;
+  color: #117351;
+  font-size: 10px;
+  font-weight: 800;
+  transition: .18s ease;
+}
+
+.complete-button:hover:not(:disabled) {
+  background: #e5f6ef;
+  border-color: #9fd5c2;
+  transform: translateY(-1px);
+}
+
+.wide-button {
+  width: 100%;
+  justify-content: center;
+}
+
+.completed-banner {
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-color: #cfece1;
+  background: #f3fbf8;
+  color: #147454;
+}
+
+.completed-banner strong {
+  font-size: 10px;
+}
+
+.completed-banner p {
+  margin: 3px 0 0;
+  color: #72808e;
+  font-size: 8px;
+}
+
+.completion-dialog-copy {
+  display: flex;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #d9ede6;
+  border-radius: 10px;
+  background: #f5fbf8;
+  color: #167452;
+}
+
+.reassess-form {
+  max-height: 72vh;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.reassess-intro,
+.reassess-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 11px 12px;
+  border-radius: 10px;
+  background: #f7f5ff;
+  color: #6253c7;
+  font-size: 8px;
+  line-height: 1.5;
+}
+
+.reassess-note {
+  background: #f5f8fb;
+  color: #687687;
+}
+
+.reassessment-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 3px;
+}
+
+@media (max-width: 900px) {
+  .engineered-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .engineered-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .assessment-topline {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .reassessment-actions {
+    flex-direction: column-reverse;
+  }
+
+  .reassessment-actions button {
+    width: 100%;
+    justify-content: center;
+  }
+}
