@@ -5,9 +5,9 @@ import Sidebar from './components/Sidebar';
 import TopBar from './components/TopBar';
 import Audit from './pages/Audit';
 import Dashboard from './pages/Dashboard';
-import Intake from './pages/Intake';
+import Intake from './pages/IntakeV2';
 import Login from './pages/Login';
-import PatientDetail from './pages/PatientDetail';
+import PatientDetail from './pages/PatientDetailV2';
 import PastPatients from './pages/PastPatients';
 import Queue from './pages/Queue';
 import Signup from './pages/Signup';
@@ -17,8 +17,7 @@ function isAuthenticated() {
 }
 
 function ProtectedRoute({ children }) {
-  // This is only a presentation-level guard. The API still validates the JWT
-  // and role on every protected request.
+  // This is only a client-side guard. The backend still authorizes every API request.
   return isAuthenticated() ? children : <Navigate to="/login" replace />;
 }
 
@@ -43,14 +42,17 @@ function Shell() {
   const user = JSON.parse(localStorage.getItem('pt_user') || 'null');
 
   useEffect(() => {
+    // Keep one shared Socket.IO connection for queue, alert, and health events.
     socket.connect();
 
     const handleHealth = value => {
       setHealth(current => ({ ...current, ...value }));
     };
+
     const handleConnect = () => {
       setHealth(current => ({ ...current, realtime: 'CONNECTED' }));
     };
+
     const handleDisconnect = () => {
       setHealth(current => ({ ...current, realtime: 'DISCONNECTED' }));
     };
@@ -77,6 +79,7 @@ function Shell() {
   return (
     <div className="app-shell">
       <Sidebar user={user} />
+
       <main className="main-area">
         <TopBar
           title={getPageTitle(location.pathname)}
@@ -85,6 +88,7 @@ function Shell() {
           onLogout={logout}
           socket={socket}
         />
+
         <div className="page-content">
           <Routes>
             <Route path="/dashboard" element={<Dashboard health={health} />} />
