@@ -2,90 +2,91 @@
 
 ## 1. Purpose
 
-PatientTriage.ai is a full-stack emergency-department decision-support prototype. The architecture separates the presentation layer, application orchestration, model inference, safety logic, persistence and auditability so each responsibility can be changed without turning the application into one large block of code.
+PatientTriage.ai is a full-stack emergency-department decision-support prototype. The codebase keeps the browser, application API, model runtime, safety logic, persistence and audit trail as separate concerns so each part can be tested and maintained independently.
 
-The most important boundary is:
+The central product rule is:
 
 ```text
 AI recommendation ≠ final clinical decision
 ```
 
-The clinician remains responsible for accepting, modifying or replacing the recommendation.
+The model supports the clinician. The clinician remains responsible for the final decision.
 
 ## 2. High-level architecture
 
 ```mermaid
 flowchart LR
-    Browser[React + Vite clinical workspace]
+    B[React + Vite workspace]
     API[Node / Express API]
-    AUTH[JWT + RBAC middleware]
-    PAT[Patient routes]
+    AUTH[JWT + RBAC]
+    PAT[Patient workflows]
+    FEATURES[Feature builder]
     TRIAGE[Triage orchestration]
-    FEATURES[Dataset feature builder]
-    FLAGS[Independent red flags]
-    CONF[Confidence / uncertainty]
-    ML[XGBoost FastAPI service]
-    QUEUE[Queue monitor]
-    ALERTS[Socket.IO events]
+    FLAGS[Independent safety detectors]
+    UNC[Confidence / uncertainty]
+    ML[FastAPI final ensemble]
+    Q[Queue monitor]
+    RT[Socket.IO]
     AUDIT[SHA-256 audit service]
     DB[(MongoDB)]
 
-    Browser -->|REST| API
-    Browser -->|Socket.IO| ALERTS
+    B -->|REST| API
+    B -->|Socket.IO| RT
     API --> AUTH
     AUTH --> PAT
     PAT --> FEATURES
     FEATURES --> TRIAGE
     TRIAGE --> ML
     TRIAGE --> FLAGS
-    TRIAGE --> CONF
+    TRIAGE --> UNC
     TRIAGE --> DB
-    PAT --> QUEUE
-    QUEUE --> TRIAGE
+    PAT --> Q
+    Q --> TRIAGE
     PAT --> AUDIT
-    QUEUE --> AUDIT
+    Q --> AUDIT
     TRIAGE --> AUDIT
     AUDIT --> DB
-    ALERTS --> Browser
+    RT --> B
 ```
 
-## 3. Runtime components
+## 3. Runtime responsibilities
 
-### Frontend
+### React frontend
 
-The React application is responsible for:
+The frontend handles presentation and browser-side workflow state:
 
-- rendering the Command Centre;
-- collecting patient intake data;
-- displaying model results and confidence;
-- displaying independent red-flag results;
-- recording explicit clinician actions;
-- rendering the queue and alert center;
-- displaying the audit trail;
-- handling browser-side routing and session state.
+- Command Centre metrics;
+- dataset-aligned Patient Intake;
+- Patient Review;
+- Live Queue;
+- Past Patients;
+- Audit Trail;
+- authentication screens;
+- alert center and realtime status;
+- clinician Accept, Override and Reassess interactions.
 
-The frontend is intentionally not an authorization boundary. API permissions are enforced by the backend.
+The browser is not the authorization boundary. It never decides whether a user is allowed to perform a protected operation.
 
 ### Node / Express backend
 
-The Node process is the application coordinator. It owns:
+Node is the application and safety orchestration boundary. It owns:
 
 - authentication and role checks;
-- patient creation and retrieval;
-- feature-vector construction;
-- triage orchestration;
-- safety decisions;
+- patient lifecycle;
+- application-ID lookup;
+- dataset feature construction;
+- model invocation;
+- independent safety detectors;
+- confidence and uncertainty handling;
 - queue monitoring;
-- alert event publication;
-- clinician acceptance/override handling;
+- clinician decisions;
 - audit writes;
-- database access.
-
-This allows the application to continue operating even when the Python model service is unavailable.
+- realtime event publication;
+- model fallback handling.
 
 ### MongoDB
 
-MongoDB stores the operational state:
+MongoDB persists:
 
 ```text
 users
@@ -93,91 +94,129 @@ patients
 AuditLog
 ```
 
-Patient records contain both the clinician-facing representation and the dataset-aligned `modelFeatures` object used for inference traceability.
+A patient record keeps both clinician-facing values and the dataset-aligned model feature payload so that the exact inputs used for an assessment can be reviewed later.
 
 ### Python inference service
 
-`ml/inference_service.py` is intentionally small. It does only three things:
+The FastAPI process has one narrow responsibility: load the supplied model artifact, prepare the expected feature frame and return the ensemble result.
 
-1. load the persisted XGBoost pipeline;
-2. validate that the required feature names are present;
-3. return the predicted ESI class and class probabilities.
+The final artifact is:
 
-The Python service does not own authentication, clinician decisions, queue ordering, audit logging or safety policy.
+```text
+ml/artifacts/triage_ensemble_model.pkl
+```
+
+Its ensemble structure is:
+
+```text
+5 × LightGBM
++
+5 × XGBoost
+      ↓
+LogisticRegression stacking model
+      ↓
+ESI 1–5 + probabilities + confidence
+```
+
+The FastAPI service does not own authentication, queue ordering, clinician actions or safety policy.
 
 ## 4. Patient creation flow
 
 ```text
+Patient Intake
+      ↓
 POST /api/patients
-        ↓
-Validate required clinician inputs
-        ↓
-Generate PT-YYYY-XXXXXX patient ID
-        ↓
-Extract complaint signals
-        ↓
-Build dataset-aligned modelFeatures
-        ↓
-Run triage orchestration
-        ↓
-Try XGBoost inference
-        │
-        ├── available → use model probabilities
-        │
-        └── unavailable → deterministic fallback scorer
-        ↓
-Run independent red-flag checks
-        ↓
+      ↓
+Validate clinician-entered fields
+      ↓
+Generate PT-YYYY-XXXXXX application ID
+      ↓
+Build dataset-aligned raw features
+      ↓
+Create final engineered feature vector
+      ↓
+Call supplied ensemble
+      │
+      ├── success → ensemble ESI/probabilities
+      │
+      └── unavailable → explicit deterministic fallback
+      ↓
+Run independent safety detectors
+      ↓
 Calculate confidence / completeness
-        ↓
-Apply safety precedence rules
-        ↓
-Persist recommendation + assessment
-        ↓
-Append audit events
-        ↓
-Emit realtime Socket.IO events
-        ↓
-Return patient record
+      ↓
+Apply safety precedence
+      ↓
+Persist patient + assessment
+      ↓
+Write audit event
+      ↓
+Emit realtime events
+      ↓
+Open Patient Review
 ```
 
-## 5. Dataset feature contract
+## 5. Dataset and inference contract
 
-The reference dataset contains 40 columns. Four are excluded from prediction:
-
-| Field | Treatment |
-|---|---|
-| `patient_id` | generated application identifier, not a predictor |
-| `disposition` | excluded because it is downstream of triage |
-| `ed_los_hours` | excluded because it is downstream and can leak outcome information |
-| `triage_acuity` | target label |
-
-The remaining 36 fields are the model inputs.
-
-The browser does not ask staff to calculate derived values manually. The intake layer derives fields such as age group, arrival timing context, BMI, mean arterial pressure, pulse pressure and shock index.
-
-## 6. Triage orchestration
-
-Triage consists of multiple layers rather than one score.
-
-### Layer 1 — model evidence
-
-XGBoost returns:
+The reference training dataset contains 40 columns. The application mirrors the clinician-relevant fields and keeps downstream outcomes separate from inference.
 
 ```text
-predicted ESI
-ESI 1 probability
-ESI 2 probability
-ESI 3 probability
-ESI 4 probability
-ESI 5 probability
-model confidence
-model version
+patient_id     → identifier
+triage_acuity  → target
+ disposition   → downstream outcome
+ ed_los_hours  → downstream outcome
 ```
 
-### Layer 2 — independent safety detectors
+The final artifact expands the raw clinical/context fields into a **52-column prediction feature set**. The runtime reads the canonical feature order stored inside the artifact rather than maintaining an independent competing order.
 
-The application evaluates separate detector families:
+The feature builder is responsible for derived values such as:
+
+```text
+age_group
+arrival_hour
+arrival_day
+arrival_month
+arrival_season
+shift
+bmi
+mean_arterial_pressure
+pulse_pressure
+shock_index
+```
+
+Additional engineered variables required by the supplied artifact are produced in the model runtime, including vital-deviation and red-flag features.
+
+Post-triage outcomes are never fed back into prediction.
+
+## 6. Final model path
+
+```text
+Raw patient data
+       ↓
+Artifact-aligned feature engineering
+       ↓
+Saved categorical mappings + saved feature order
+       ↓
+5 LightGBM fold probabilities
+       +
+5 XGBoost fold probabilities
+       ↓
+LogisticRegression meta-model
+       ↓
+Predicted ESI 1–5
+       ↓
+Five-class probability distribution
+       ↓
+Model confidence
+```
+
+The application records model source and version so clinicians can tell a supplied-model result from a fallback result.
+
+## 7. Independent safety layer
+
+The general model prediction is only one input to the application recommendation.
+
+The Node layer evaluates independent prototype detector families:
 
 ```text
 sepsis-like
@@ -186,77 +225,99 @@ stroke-like
 respiratory-failure-like
 ```
 
-The detectors produce a structured state with a score, positive/clear state and reasons.
+A configured positive safety detector can force an immediate-escalation action even when the general model predicts a less urgent class.
 
-### Layer 3 — uncertainty
+## 8. Uncertainty handling
 
-Confidence considers:
+The confidence layer considers data completeness and supporting evidence. Missing history is not silently treated as proof that the patient has no prior history.
 
-- data completeness;
-- model/signal agreement;
-- history availability;
-- age normalization;
-- supporting evidence.
-
-A patient without prior history is deliberately treated as less certain rather than being silently assumed to have no history.
-
-### Layer 4 — safety precedence
-
-The general prediction never overrides a positive high-sensitivity safety condition.
-
-Conceptually:
+When information is sparse or conflicting, the workflow can use:
 
 ```text
-red flag positive
-      ↓
-IMMEDIATE_ESCALATION
-
-otherwise low confidence / sparse data
-      ↓
 ABSTAIN_AND_ESCALATE
+```
 
-otherwise
+The purpose is to make uncertainty visible rather than hide it behind a confident-looking label.
+
+## 9. Fail-open behavior
+
+The Python model service is not allowed to become a single point of failure for the prototype.
+
+```text
+FastAPI inference
       ↓
-AUTO_CONTEXT
-```
-
-## 7. Fail-open behavior
-
-The model service is optional at runtime because reliability is more important than forcing a dependency on a separate Python process.
-
-When inference fails:
-
-```text
-XGBoost request
-     ↓
-connection / timeout / service error
-     ↓
+request / timeout / artifact error
+      ↓
+Node catches the failure
+      ↓
 deterministic prototype scorer
-     ↓
-modelSource = fallback/prototype
-     ↓
-workflow continues
+      ↓
+model source recorded as fallback
+      ↓
+workflow remains available
 ```
 
-The fallback is explicit and traceable; it is not presented as a successful XGBoost inference.
+The UI must never label fallback output as the supplied final ensemble.
 
-## 8. Human-in-the-loop boundary
+## 10. Human-in-the-loop state
 
-The model recommendation is stored separately from the final clinician choice.
-
-Examples:
+The patient record keeps separate values for recommendation and final decision:
 
 ```text
-triage.esi       → model recommendation
-manualEsi        → clinician selected value
-finalEsi         → effective final priority
+triage.esi  → model recommendation
+manualEsi   → clinician-selected value
+finalEsi    → effective final priority
 ```
 
-An override requires a target ESI and structured reason. The action is audited.
+The available actions are:
 
-## 9. Continuous queue monitoring
+```text
+Accept
+Override
+Reassess
+Mark service done
+```
 
-Waiting patients maintain:
+Override requires a target ESI and structured reason, and the action is audited.
+
+## 11. Reassessment history
+
+Reassessment creates a new assessment entry instead of overwriting the past record.
+
+The Patient Review page exposes the retained history so clinicians can see:
+
+```text
+previous recommendation
+new recommendation
+confidence
+model source
+reason / supporting signals
+timestamp
+```
+
+For long histories, the UI uses an internal scroll region instead of allowing the entire page to grow without bound.
+
+## 12. Patient completion and Past Patients
+
+When the operational service is completed:
+
+```text
+active patient
+      ↓
+Mark service done
+      ↓
+status updated
+      ↓
+removed from active workflow
+      ↓
+available in Past Patients
+```
+
+Historical data remains available for review and audit.
+
+## 13. Queue monitoring
+
+Waiting patients retain queue state such as:
 
 ```text
 queueStatus
@@ -269,15 +330,11 @@ surgeMode
 deteriorationDetected
 ```
 
-The queue monitor selects due patients, re-runs the same triage orchestration used at arrival, updates the queue and emits a realtime event.
+The queue monitor reuses the same triage orchestration as patient arrival so reassessment does not become a separate scoring path.
 
-Surge mode shortens the prototype reassessment cadence.
+## 14. Realtime alerts
 
-## 10. Realtime event architecture
-
-Socket.IO is shared by the main React shell so individual pages do not create duplicate connections.
-
-Important events include:
+Socket.IO provides live operational events:
 
 ```text
 system:health
@@ -289,13 +346,11 @@ override
 queue:updated
 ```
 
-The alert center converts safety-relevant events into visible in-app notifications.
+The Alert Center converts these into unread notifications and critical/warning toast states. The alert menu is intentionally bounded and scrollable so a large number of alerts does not cover the entire page.
 
-## 11. Audit architecture
+## 15. Audit architecture
 
-Every important decision event is appended to the audit collection.
-
-Each record contains:
+Important events are written to `AuditLog` with linked hashes:
 
 ```text
 eventId
@@ -309,107 +364,78 @@ previousHash
 hash
 ```
 
-The hash is calculated over a canonical representation of the event and the preceding hash. Verification walks the chain in order and reports the first mismatch.
+The current hash includes the canonical event data and the preceding hash. Verification walks the chain and identifies the first mismatch.
 
-This is an application-level integrity mechanism for the prototype. It is not a replacement for a production immutable logging platform.
+This is an application-level integrity mechanism for the prototype, not a certified immutable compliance system.
 
-## 12. Authentication and authorization
-
-The authentication flow is:
+## 16. Authentication and authorization
 
 ```text
 Login / Signup
       ↓
-bcrypt password verification / hashing
+bcrypt password hashing / verification
       ↓
-JWT creation
+JWT
       ↓
-Browser stores session token
+Axios Bearer token
       ↓
-Axios attaches Bearer token
+Express auth middleware
       ↓
-Express auth middleware validates token
-      ↓
-Role middleware checks operation privilege
+server-side role check
 ```
 
-The signup endpoint never trusts a browser-supplied privileged role.
-
-## 13. Frontend structure
-
-The client separates reusable components from workflow pages:
+Supported roles are:
 
 ```text
-components/
-  AlertCenter
-  Badge
-  Modal
-  Sidebar
-  TopBar
-
-pages/
-  Login
-  Signup
-  Dashboard
-  Intake
-  Queue
-  PatientDetail
-  Audit
+triage_nurse
+charge_nurse
+clinical_admin
+system_admin
 ```
 
-`responsive.css` contains viewport-specific behavior instead of mixing every mobile rule into each page component.
+The browser does not grant roles or privileges.
 
-## 14. Responsive architecture
+## 17. Responsive architecture
 
-The UI is desktop-first but adapts its information density:
+The UI adapts the information density rather than simply shrinking the desktop layout.
 
 ```text
-Desktop      dense multi-column workspace
-Tablet       reduced columns + narrower navigation
-Phone        mobile navigation + stacked content
-Small phone  single-column controls
+Desktop       multi-column operations workspace
+Tablet        fewer columns / tighter spacing
+Phone         stacked content / reachable actions
+Small phone   single-column forms / local table scrolling
 ```
 
-Data-heavy tables use their own horizontal scrolling region where necessary. The page itself is not intentionally widened beyond the viewport.
+The alert panel, reassessment history and data tables use local scroll areas where appropriate to prevent page-wide overflow.
 
-## 15. Security boundary
-
-Security controls are distributed as follows:
+## 18. Code organization
 
 ```text
-Browser
-  → presentation/session only
-
-Express
-  → authentication
-  → authorization
-  → validation
-  → rate limiting
-  → safety decisions
-
-MongoDB
-  → persistent application state
-
-Audit service
-  → integrity-linked decision events
+client/src/components/ → reusable UI pieces
+client/src/pages/      → route-level workflows
+client/src/utils/      → shared transformations/helpers
+server/src/routes/     → HTTP boundary
+server/src/services/   → feature construction + triage logic
+server/src/models/     → MongoDB schemas
+ml/                    → final model runtime and verification
 ```
 
-See `docs/SECURITY.md` for detailed production gaps.
+Keep comments focused on intent. A useful comment answers “why is this necessary?” rather than restating what the next line already says.
 
-## 16. Production evolution
+## 19. Production evolution
 
-A production architecture would normally add:
+A production architecture would still need:
 
-- managed secret storage;
-- TLS everywhere;
-- centralized identity management;
-- stronger database authorization;
-- durable message/event infrastructure;
-- observability and alerting;
+- managed secrets and TLS;
+- centralized identity;
+- stronger database controls;
+- durable event infrastructure;
+- structured observability;
 - model registry/version management;
-- calibration and bias monitoring;
+- calibration and subgroup monitoring;
 - formal clinical validation;
-- disaster recovery and backup policies;
-- immutable compliance-grade audit infrastructure.
+- disaster recovery;
+- immutable compliance-grade audit infrastructure;
+- privacy and regulatory review.
 
-The current prototype deliberately keeps the topology small enough to run locally.
+The present topology is intentionally small enough for local demonstration and development.
