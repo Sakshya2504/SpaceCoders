@@ -2,57 +2,38 @@
 
 ## 1. Scope
 
-PatientTriage.ai is a synthetic-data prototype. The controls documented here describe the current software design and the hardening required before a production deployment.
+PatientTriage.ai is a synthetic-data decision-support prototype. This document describes the controls present in the application and the additional controls that would be required before production use.
 
-The application must not be treated as a clinically validated medical device.
+The system is not a clinically validated medical device and must not be used for autonomous patient-care decisions.
 
 ## 2. Security boundaries
 
 ```text
 Browser
-  → presentation + session token handling
+  → presentation + session state
 
 Node / Express
   → authentication
   → authorization
-  → input handling
-  → safety orchestration
+  → request validation
+  → triage orchestration
+  → safety policy
   → database access
 
+Python FastAPI
+  → supplied model artifact inference
+
 MongoDB
-  → persistent application records
-
-Python ML service
-  → model inference only
+  → application persistence
 ```
 
-The browser is never the authorization boundary.
+The browser is never trusted to enforce permissions.
 
-## 3. Authentication
+## 3. Authentication and roles
 
-The application uses JWT-based sessions.
+Authentication uses JWT-backed sessions with bcrypt password hashing.
 
-Flow:
-
-```text
-email + password
-      ↓
-bcrypt verification
-      ↓
-JWT issued
-      ↓
-frontend stores token for demo session
-      ↓
-Axios sends Authorization: Bearer <token>
-      ↓
-Express validates token
-```
-
-Passwords are stored as bcrypt hashes rather than plaintext.
-
-## 4. Authorization
-
-Supported roles:
+Supported roles include:
 
 ```text
 triage_nurse
@@ -61,124 +42,165 @@ clinical_admin
 system_admin
 ```
 
-Role checks are applied by backend middleware.
+The signup workflow assigns the default `triage_nurse` role. A browser request cannot self-assign administrative privileges.
 
-The signup endpoint does not allow a new browser client to self-assign an administrative role; new accounts receive the configured default clinical role.
+## 4. API protection
 
-## 5. API protection
+The backend includes controls for:
 
-The backend currently includes:
+- JWT authentication on protected operations;
+- server-side role checks;
+- configured CORS policy;
+- request rate limiting;
+- JSON payload limits;
+- centralized error handling;
+- validation for high-impact operations such as override and manual triage.
 
-- JWT authentication for protected routes.
-- Server-side role checks.
-- CORS restricted to the configured client origin.
-- Request rate limiting.
-- JSON payload size limiting.
-- Centralized error handling.
-- Input validation for high-impact operations such as ESI override and manual triage.
+Production should add stronger request schemas, request IDs, centralized monitoring and abuse detection.
 
-Production should add stronger schema validation, request IDs, centralized observability and abuse monitoring.
+## 5. Secrets and configuration
 
-## 6. Secrets
-
-Local secrets belong in:
+Local environment values belong in:
 
 ```text
 server/.env
 ```
 
-`.env` is ignored by Git. Never commit:
-
-- production passwords;
-- signing keys;
-- database credentials;
-- API keys;
-- private certificates;
-- real patient data.
-
-`JWT_SECRET` in local documentation is a placeholder and must be replaced for any real environment.
-
-## 7. Data handling
-
-The repository uses synthetic records only. The seed command recreates demo users, patients and audit events.
-
-Do not point the seed command at a production database.
-
-A production system would require:
-
-- encryption in transit;
-- encryption at rest where appropriate;
-- strict least-privilege database permissions;
-- PHI-aware application logging;
-- retention and deletion policy;
-- access auditing;
-- backup and recovery controls;
-- privacy review.
-
-## 8. ML safety boundary
-
-The XGBoost service returns model evidence. It does not own final clinical authority.
+Never commit:
 
 ```text
-XGBoost
-   ↓
-Prediction + probabilities
-   ↓
-Node safety layer
-   ├── independent red flags
-   ├── uncertainty/confidence
-   └── fallback handling
-   ↓
-Clinician decision
+production passwords
+JWT signing secrets
+database credentials
+API keys
+private certificates
+real patient data
 ```
 
-A model outage should not silently appear as a successful model prediction. The application exposes model source/fallback metadata for traceability.
+The example JWT secret is only a placeholder for local development.
 
-## 9. Red-flag independence
+## 6. Data handling
 
-The prototype keeps safety detector logic separate from the general model score. This creates a clear precedence path where a configured high-sensitivity detector can force immediate escalation.
+The repository is intended for synthetic data. The seed script recreates demo users, patients, queue state and audit records.
 
-Current detector families:
+Destructive development commands must never target a production database.
+
+A production deployment would also need appropriate controls for encryption, retention, deletion, access auditing, backups, recovery and privacy.
+
+## 7. Model safety boundary
+
+The supplied final model is a five-fold stacked ensemble:
 
 ```text
-Sepsis-like
+5 × LightGBM
++
+5 × XGBoost
+      ↓
+LogisticRegression meta-model
+      ↓
+ESI 1–5 + probabilities + confidence
+```
+
+The model provides evidence. It does not own final clinical authority.
+
+The Node layer then handles:
+
+```text
+model result
+    ↓
+independent safety detectors
+    ↓
+uncertainty / completeness
+    ↓
+operational recommendation
+    ↓
+clinician decision
+```
+
+## 8. Independent red flags
+
+The prototype keeps its safety detector logic separate from the ensemble result. Current detector families include:
+
+```text
+sepsis-like
 MI-like
-Stroke-like
-Respiratory-failure-like
+stroke-like
+respiratory-failure-like
 ```
 
-These are demonstration detectors and are not clinically validated diagnostic tools.
+A configured positive detector can force an immediate-escalation action. These detectors are demonstration logic and are not clinically validated diagnostic tools.
 
-## 10. Uncertainty handling
+## 9. Uncertainty and fail-open behavior
 
-The system deliberately reduces confidence for sparse or incomplete records, including cases where prior history is unavailable.
-
-Low confidence or insufficient completeness can produce:
+Sparse or incomplete records can reduce confidence and lead to an explicit:
 
 ```text
 ABSTAIN_AND_ESCALATE
 ```
 
-This is safer for the prototype than silently assigning a low-risk interpretation to an uncertain record.
+When the FastAPI model service is unavailable, the Node workflow can use its deterministic prototype fallback. The fallback source is recorded so it cannot be mistaken for the supplied ensemble.
 
-## 11. Human-in-the-loop controls
+This design keeps model availability from becoming a single point of failure while preserving traceability.
 
-The application separates:
+## 10. Human-in-the-loop controls
+
+The application keeps three concepts distinct:
 
 ```text
-Model recommendation
-Clinician decision
+model recommendation
+clinician-selected value
+final effective priority
 ```
 
-Accepting a recommendation is explicit. Overriding it requires a target ESI and structured reason, with an optional note.
+The available controls are:
 
-This preserves accountability and creates feedback data for later model review.
+```text
+Accept
+Override
+Reassess
+Mark service done
+```
 
-## 12. Audit integrity
+Override requires a target ESI and structured reason. Clinician decisions are recorded in the audit trail.
 
-Decision events are linked with SHA-256 hashes.
+## 11. Reassessment history
 
-Each record includes:
+A reassessment creates a new assessment record rather than deleting the previous result. This allows a reviewer to compare:
+
+```text
+previous ESI
+new ESI
+confidence
+model source
+supporting reasons
+timestamp
+```
+
+The history view is locally scrollable so repeated reassessments do not make the entire review page unusable.
+
+## 12. Patient lifecycle
+
+When a service is completed:
+
+```text
+active patient
+      ↓
+Mark service done
+      ↓
+completion state
+      ↓
+removed from active queue
+      ↓
+available in Past Patients
+```
+
+Completion is a state transition, not deletion.
+
+## 13. Audit integrity
+
+Important decision events are linked with SHA-256 hashes.
+
+Each audit record contains fields such as:
 
 ```text
 eventId
@@ -192,77 +214,86 @@ previousHash
 hash
 ```
 
-Verification recalculates each hash and checks the previous-hash link. It reports the first mismatch.
+Verification walks the chain and reports the first mismatch when the chain is invalid.
 
-This is an application-level integrity mechanism, not a certified immutable compliance log.
-
-## 13. Legacy database migration protection
-
-Older versions used a unique `patientCode_1` index. The current connection routine removes that obsolete index when present so old database state cannot reject new patients with duplicate `null` values.
-
-This is a compatibility measure for the prototype and should be replaced with a formal migration strategy in production.
+This provides application-level tamper evidence for the prototype. It is not a certified immutable compliance logging platform.
 
 ## 14. Logging
 
-Morgan request logging is enabled for development visibility.
+Morgan request logging is useful for local debugging, but production logging should avoid unnecessarily exposing sensitive patient information.
 
-Do not log raw secrets or production patient identifiers unnecessarily.
+Production observability should capture structured metadata such as:
 
-A production service should use structured logs with:
-
-- request ID;
-- actor ID;
-- route;
-- latency;
-- status;
-- model version;
-- safety outcome;
-- error classification.
+```text
+request ID
+actor ID
+route
+latency
+status
+model version
+model source
+safety outcome
+error category
+```
 
 ## 15. Model governance
 
-The recorded XGBoost metrics are dataset-level model evaluation results. They are not evidence of clinical effectiveness.
+The supplied model artifact is a persisted experiment result, not evidence of clinical effectiveness.
 
-Before production use, validate:
-
-- calibration;
-- subgroup performance;
-- class imbalance effects;
-- drift;
-- false-negative behavior;
-- sensitivity of safety detectors;
-- threshold choices;
-- model version changes;
-- human-factors impact.
-
-## 16. Frontend safety considerations
-
-The interface should always communicate that AI output is advisory. Visual urgency should never depend on color alone; text labels and accessible states should remain available.
-
-Responsive behavior must preserve access to accept, override, reassess and alert actions on smaller screens.
-
-## 17. Production hardening checklist
+Before production use, validate at minimum:
 
 ```text
-[ ] Replace demo JWT secret with managed secret storage
-[ ] Enforce HTTPS / TLS
-[ ] Add secure cookie or equivalent hardened session strategy
-[ ] Add CSRF strategy where applicable
-[ ] Add strict production CORS policy
-[ ] Add stronger request schema validation
-[ ] Add centralized structured logging
-[ ] Add monitoring and alerting
-[ ] Restrict MongoDB network access
-[ ] Encrypt sensitive data as required
-[ ] Define retention policy
-[ ] Perform security testing and dependency scanning
-[ ] Establish model registry/version control
-[ ] Validate calibration and bias
-[ ] Perform clinical validation
-[ ] Establish governance and rollback procedures
-[ ] Conduct privacy/regulatory review
+calibration
+external / temporal performance
+subgroup performance
+class imbalance behavior
+drift
+false-negative behavior
+safety-detector sensitivity
+threshold selection
+version changes
+human-factors impact
 ```
 
-## 18. Final safety statement
+Model runtime dependencies should remain pinned so the persisted artifact does not unexpectedly change behavior after a library upgrade.
 
-PatientTriage.ai is a prototype for demonstrating safe software architecture around decision support. It must not be used as an autonomous triage system or substituted for qualified clinical judgment.
+## 16. Frontend safety
+
+The UI should always communicate that AI output is advisory.
+
+Safety states should not depend on color alone; text labels and accessible states remain available. Critical actions must remain reachable on smaller screens.
+
+Interactive controls should have visible keyboard focus and clear loading/disabled states to prevent duplicate submissions.
+
+## 17. Legacy database compatibility
+
+Older versions of the patient schema used a unique `patientCode_1` index. The current connection startup includes compatibility handling for that obsolete index so old local databases do not cause duplicate-null insertion failures.
+
+This is migration protection for the prototype, not a substitute for a formal production migration system.
+
+## 18. Production hardening checklist
+
+```text
+[ ] Managed secret storage
+[ ] HTTPS / TLS everywhere
+[ ] Hardened session strategy
+[ ] Strict production CORS
+[ ] Strong request schemas
+[ ] Centralized structured logging
+[ ] Monitoring and alerting
+[ ] Restricted MongoDB network access
+[ ] Encryption controls appropriate to deployment
+[ ] Data retention and deletion policy
+[ ] Security and dependency scanning
+[ ] Model registry and version governance
+[ ] Calibration monitoring
+[ ] Bias / subgroup analysis
+[ ] External and temporal validation
+[ ] Formal clinical validation
+[ ] Human-factors review
+[ ] Privacy / regulatory assessment
+```
+
+## 19. Final safety statement
+
+PatientTriage.ai demonstrates software architecture for emergency decision support. It is intentionally designed so the supplied model, safety layer and clinician decision remain distinguishable. The prototype must not be treated as an autonomous triage system or used as a substitute for qualified clinical judgment.
