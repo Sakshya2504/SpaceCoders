@@ -83,11 +83,12 @@ router.post(
         );
       }
 
+      // The browser can provide modelFeatures, but the server persists and
+      // validates the resulting feature contract before it is used for scoring.
       const patient = await Patient.create({
         patientId: body.patientId || buildPatientId(),
         ...body,
         extractedSymptoms: extractClinicalSignals(body.chiefComplaint),
-        clinicianDecision: 'PENDING',
         status: 'WAITING',
         queueStatus: 'WAITING'
       });
@@ -398,8 +399,58 @@ router.post(
       }
 
       const previousEsi = patient.finalEsi || patient.triage?.esi || 5;
-      const scored = await scorePatient({ ...patient.toObject(), ...req.body });
       const previousDecision = patient.clinicianDecision;
+      const incoming = req.body || {};
+
+      // Reassessment is a true observation update, not just a new score. Persist
+      // the new vitals and clinical context so the next review starts from them.
+      if (incoming.vitals && typeof incoming.vitals === 'object') {
+        patient.vitals = {
+          ...(patient.vitals?.toObject?.() || patient.vitals || {}),
+          ...incoming.vitals
+        };
+      }
+
+      if (incoming.chiefComplaint !== undefined) {
+        patient.chiefComplaint = String(incoming.chiefComplaint).trim();
+        patient.extractedSymptoms = extractClinicalSignals(patient.chiefComplaint);
+      }
+
+      if (incoming.mentalStatus !== undefined) {
+        patient.mentalStatus = incoming.mentalStatus;
+      }
+
+      const updatedModelFeatures = {
+        ...(patient.modelFeatures || {}),
+        ...(incoming.modelFeatures || {})
+      };
+
+      if (patient.vitals) {
+        updatedModelFeatures.heart_rate = patient.vitals.heartRate;
+        updatedModelFeatures.respiratory_rate = patient.vitals.respiratoryRate;
+        updatedModelFeatures.systolic_bp = patient.vitals.systolicBP;
+        updatedModelFeatures.diastolic_bp = patient.vitals.diastolicBP;
+        updatedModelFeatures.temperature_c = patient.vitals.temperature;
+        updatedModelFeatures.spo2 = patient.vitals.spo2;
+        updatedModelFeatures.pain_score = patient.vitals.painScore;
+      }
+
+      if (incoming.mentalStatus !== undefined) {
+        updatedModelFeatures.mental_status_triage = incoming.mentalStatus;
+      }
+
+      patient.modelFeatures = updatedModelFeatures;
+
+      const scoringInput = {
+        ...patient.toObject(),
+        ...incoming,
+        vitals: patient.vitals,
+        chiefComplaint: patient.chiefComplaint,
+        mentalStatus: patient.mentalStatus,
+        modelFeatures: patient.modelFeatures
+      };
+
+      const scored = await scorePatient(scoringInput);
 
       patient.triage = {
         ...scored,
@@ -416,8 +467,7 @@ router.post(
       );
 
       // A fresh recommendation needs fresh human acknowledgement. Keep an
-      // existing clinician override intact as the current final decision, but
-      // otherwise return the decision state to PENDING.
+      // existing clinician override intact because it remains the final decision.
       if (patient.manualEsi == null && previousDecision !== 'OVERRIDDEN') {
         patient.clinicianDecision = 'PENDING';
         patient.clinicianDecisionAt = undefined;
@@ -502,10 +552,7 @@ router.post(
         payload: { esi: Number(esi) }
       });
 
-      io(req)?.emit('queue:updated', {
-        reason: 'manual triage',
-        patientId: patient.patientId
-      });
+      io(req)?.emit('queue:updated', { reason: 'manual triage' });
       return ok(res, patient, 'Manual triage recorded');
     } catch (error) {
       next(error);
