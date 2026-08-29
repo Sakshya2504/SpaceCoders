@@ -77,8 +77,10 @@ export default function PatientDetail() {
       await request();
       await loadPatient();
       setMessage(successMessage);
+      return true;
     } catch (requestError) {
       setError(getErrorMessage(requestError));
+      return false;
     } finally {
       setBusyAction('');
     }
@@ -166,9 +168,8 @@ export default function PatientDetail() {
       return;
     }
 
-    // Send the updated observations back through the normal reassessment
-    // endpoint. The server will rebuild derived features and run the final
-    // ensemble again using the new state.
+    // Send the updated observations back through the same server-side scoring
+    // contract used for the initial triage assessment.
     runAction(
       'reassess',
       () =>
@@ -192,7 +193,12 @@ export default function PatientDetail() {
           }
         }),
       'Patient reassessed successfully.'
-    ).then(() => setIsReassessOpen(false));
+    ).then(success => {
+      // Only close the form after the server has confirmed the new assessment.
+      if (success) {
+        setIsReassessOpen(false);
+      }
+    });
   };
 
   const confirmOverride = async () => {
@@ -493,8 +499,11 @@ export default function PatientDetail() {
               onClick={openReassessment}
               disabled={Boolean(busyAction)}
             >
-              <RefreshCcw size={15} />
-              Reassess
+              <RefreshCcw
+                size={15}
+                className={busyAction === 'reassess' ? 'spin' : ''}
+              />
+              {busyAction === 'reassess' ? 'Reassessing…' : 'Reassess'}
             </button>
           </div>
         </div>
