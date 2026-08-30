@@ -1,123 +1,243 @@
 # PatientTriage.ai
 
-PatientTriage.ai is a safety-first emergency-department decision-support prototype. It combines structured patient intake, XGBoost-assisted acuity prediction, independent red-flag detection, confidence-aware recommendations, live queue monitoring, realtime alerts and an auditable clinician decision trail in one workspace.
+**PatientTriage.ai** is a safety-first emergency-department decision-support prototype built by **SpaceCoders, Indian Institute of Technology Indore**. It helps clinicians prioritise patients, surface safety signals, monitor waiting patients and retain a traceable decision history - while keeping the clinician in control of the final decision.
 
-> **Prototype boundary:** the application uses synthetic data. The model, thresholds and decision logic have not been clinically validated and must not be used for real patient care.
+> **Prototype boundary:** This project uses synthetic/demo data. The model, safety thresholds and workflow logic are not clinically validated and must not be used for real patient care.
 
 ## Product in one sentence
 
 **A second pair of eyes for emergency triage that surfaces acuity, risk and uncertainty early while keeping the clinician in control of the final decision.**
 
-## End-to-end workflow
+## Round 2: what the prototype demonstrates
+
+The working prototype demonstrates the complete mechanism requested for an illustrative proof of concept:
 
 ```text
-Clinician signs in
-        ↓
+Sign in
+   ↓
 Patient Intake
-        ↓
-Dataset-aligned feature builder
-        ↓
-XGBoost inference (preferred when available)
-        ↓
-ESI class + class probabilities
-        │
-        ├───────────────┐
-        ↓               ↓
-Confidence        Independent red flags
-        │               │
-        └───────┬───────┘
-                ↓
-     Safety / uncertainty layer
-                ↓
-     Recommendation + explanation
-                ↓
-       Clinician review
-          ↙          ↘
-      Accept        Override
-          \          /
-           ↓        ↓
-         Final triage decision
-                ↓
-          Waiting queue
-                ↓
-       Reassessment loop
-                ↓
-     Realtime alerts + audit
+   ↓
+Dataset-aligned feature preparation
+   ↓
+Supplied final ML model
+   ↓
+ESI 1-5 + probabilities + confidence
+   ↓
+Independent safety / uncertainty layer
+   ↓
+Patient Review
+   ↓
+Accept / Override / Reassess
+   ↓
+Live Queue + Alerts
+   ↓
+Mark Service Done
+   ↓
+Past Patients + Audit Trail
 ```
 
-The Node.js service is the orchestration and safety boundary. The Python service has one narrow responsibility: loading the trained XGBoost pipeline and returning a prediction. If the Python service is unavailable, the Node application uses its deterministic prototype scorer and exposes that fallback so the event can be reviewed rather than silently treated as a model result.
+The demo can also cover the requested edge cases: an ambiguous presentation, a pediatric patient, a geriatric patient, a zero-history first-time patient, a clinician override, and a simulated surge with approximately 3x normal volume.
 
-## Features
+## Why the problem matters
+
+Emergency triage is a high-pressure workflow in which one clinician may need to interpret symptoms, vitals, history, documentation and the state of the waiting queue at the same time. The product concept from Round 1 focuses on three gaps:
+
+1. **Cognitive overload** - too many decisions and documentation tasks at the same time.
+2. **Hidden deterioration** - a patient can change after the first assessment while waiting.
+3. **Fragmented context** - patient context, queue pressure, alerts and previous decisions are difficult to hold as one operational picture.
+
+PatientTriage.ai is designed as a continuous **sense -> recommend -> monitor -> reassess** loop rather than a one-time score.
+
+## Solution design
 
 ### Clinical intake
 
-- Patient identity and synthetic patient ID generation.
-- Demographics and age band.
-- Arrival mode and operational context.
-- Language, insurance type and transport origin.
-- Complaint category and free-text chief complaint.
-- Pain location and mental status.
-- Prior ED visits, admissions, medications and comorbidities.
-- Bedside vitals, GCS, pain score, weight and height.
-- NEWS2 score.
-- Automatic derived features such as BMI, mean arterial pressure, pulse pressure, shock index, age group, arrival context and shift.
+The intake page is aligned to the supplied training-data feature vocabulary and includes the major field families used by the model workflow:
 
-### AI-assisted triage
+- Patient identity and demographics
+- Arrival mode and arrival date/time
+- Site and triage-nurse context
+- Language, insurance and transport origin
+- Pain location and mental status
+- Chief complaint and complaint system
+- Prior ED visits and admissions
+- Active medications and comorbidities
+- Blood pressure, heart rate, respiratory rate and temperature
+- SpO2, GCS and pain score
+- Weight, height and NEWS2
 
-- Five-class ESI recommendation.
-- XGBoost class probabilities.
-- Confidence and confidence band.
-- Model version and model source metadata.
-- Feature contribution/explanation layer.
-- Deterministic fallback scorer when ML inference is unavailable.
+The portal calculates derived values where appropriate, including:
 
-### Safety and uncertainty
+- Age group
+- Arrival hour, day, month and season
+- Shift
+- BMI
+- Mean arterial pressure
+- Pulse pressure
+- Shock index
 
-- Independent sepsis-like detector.
-- Independent MI-like detector.
-- Independent stroke-like detector.
-- Independent respiratory-failure-like detector.
-- Immediate escalation when configured red-flag thresholds are met.
-- Explicit abstain-and-escalate behavior for incomplete/uncertain cases.
-- Fail-open behavior when inference is unavailable.
-- Human-in-the-loop acceptance and override.
+Downstream target/outcome fields are not treated as estimator inputs.
 
-### Operations
+## Final model
 
-- Live waiting queue.
-- Priority ordering by acuity and arrival time.
-- Safe-max-wait calculation.
-- Periodic reassessment.
-- Surge mode with tighter monitoring cadence.
-- Realtime Socket.IO updates.
-- Alert center with unread counts, severity and toast notifications.
+The portal is designed around the **supplied final model artifact** rather than retraining a replacement model during inference.
 
-### Governance
+```text
+5 x LightGBM models
+          +
+5 x XGBoost models
+          ↓
+LogisticRegression stacking model
+          ↓
+ESI 1-5
++ class probabilities
++ confidence
+```
 
-- JWT authentication.
-- Server-side role-based access control.
-- Bcrypt password hashing.
-- Structured clinician override reasons.
-- Append-oriented SHA-256 linked audit events.
-- Audit-chain verification.
-- Responsive desktop/tablet/mobile interface.
+The runtime follows the canonical feature contract stored with the model artifact. The model result is advisory evidence and remains separate from the application safety layer and the final clinician decision.
+
+### Model output
+
+For every model-backed assessment the portal should expose:
+
+- Predicted ESI: **1, 2, 3, 4 or 5**
+- Five-class probability distribution
+- Confidence for the selected class
+- Model/source metadata
+- Human-readable ESI explanation
+
+Example product wording:
+
+```text
+ESI 4 - Lower acuity
+
+The current presentation appears stable with limited expected resource needs.
+```
+
+These explanations are **prototype product language**, not a claim that the project is an officially validated clinical ESI implementation.
+
+## Safety and uncertainty layer
+
+The model is not the only decision layer. The application separately evaluates prototype safety signals and uncertainty.
+
+```text
+                Model recommendation
+                         ↓
+        ┌────────────────┴────────────────┐
+        ↓                                 ↓
+  Confidence / uncertainty        Independent red flags
+                                        ↓
+                            Safety-aware recommendation
+                                        ↓
+                                Clinician review
+```
+
+The prototype includes independent detector families for:
+
+- Sepsis-like risk
+- MI-like risk
+- Stroke-like risk
+- Respiratory-failure-like risk
+
+The workflow supports explicit **abstain/escalate** and **fail-open** behavior when configured conditions require it or model inference is unavailable.
+
+## Human-in-the-loop workflow
+
+The clinician remains the final decision-maker.
+
+### Accept
+
+Records explicit clinician acceptance of the current recommendation.
+
+### Override
+
+Allows a clinician to choose a different ESI and record a reason. The original model recommendation remains distinguishable from the final clinician-selected priority.
+
+### Reassess
+
+Opens a reassessment window for updated current values, runs a fresh assessment and retains previous assessments as history. Reassessment history is locally scrollable so large histories do not make the page unusable.
+
+### Service completion
+
+`Mark service done` moves the patient out of the active workflow while keeping the record available in **Past Patients**.
+
+## Operations
+
+### Live queue
+
+The queue exposes operational context such as:
+
+- Queue position
+- Final ESI
+- Model confidence
+- Waiting time
+- Reassessment timing
+- Action state
+- Red-flag state
+
+### Surge mode
+
+The prototype can simulate a surge with approximately **3x the normal arrival volume** and a tighter monitoring cadence. This is intended to demonstrate operational behaviour, not to claim validated capacity gains.
+
+### Alerts
+
+The alert centre surfaces events such as:
+
+```text
+New triage recommendation
+Immediate escalation
+Deterioration / reassessment
+Clinician override
+AI fail-open
+Surge activity
+```
+
+The alert panel is bounded and scrollable so repeated events remain manageable.
+
+## Auditability
+
+Important workflow events are stored in an append-oriented audit trail. Events are linked using SHA-256 hashes and the Audit Trail screen can verify the chain.
+
+The purpose is to preserve:
+
+```text
+who acted
+when they acted
+what the model recommended
+what the clinician decided
+what changed during reassessment
+```
+
+## Working prototype demonstration set
+
+A strong five-case demonstration can cover the Round 2 expectations efficiently:
+
+| Case | Scenario | Demonstrates |
+|---|---|---|
+| 1 | Critical respiratory presentation | High-risk model result, safety signal, escalation and alert |
+| 2 | Ambiguous chest-pain presentation | Confidence/probabilities, clinician judgement, override and audit |
+| 3 | Pediatric patient | Age-group handling and model workflow on a pediatric profile |
+| 4 | Geriatric patient with weakness/confusion | Multi-factor risk context and prioritisation |
+| 5 | Zero-history first-time patient | Missing historical context, explicit confidence and reassessment |
+
+The remaining requirement of demonstrating **15-20 simulated records** can be shown through the seeded synthetic population and surge simulation while the five cases above are used for the detailed walkthrough.
 
 ## Technology stack
 
 | Layer | Technology | Responsibility |
 |---|---|---|
-| UI | React + Vite | Clinical workspace and workflows |
-| Routing | React Router | Protected product screens |
-| HTTP client | Axios | REST API communication |
-| Realtime | Socket.IO client | Queue, alert and health events |
-| UI icons | Lucide React | Consistent iconography |
-| API | Node.js + Express | Application orchestration |
-| Database | MongoDB + Mongoose | Patient, user and audit persistence |
-| Auth | JWT + bcryptjs | Authentication and role enforcement |
+| UI | React + Vite | Clinical workspace |
+| Routing | React Router | Application navigation |
+| HTTP | Axios | REST communication |
+| Realtime | Socket.IO client | Queue, alert and health updates |
+| Icons | Lucide React | Consistent product iconography |
+| API | Node.js + Express | Orchestration and application workflow |
+| Database | MongoDB + Mongoose | Patient, user, assessment and audit persistence |
+| Auth | JWT + bcryptjs | Authentication and server-side role enforcement |
 | Realtime server | Socket.IO | Event broadcast |
-| ML | Python + XGBoost | Five-class ESI model |
-| ML preprocessing | pandas + scikit-learn | Dataset validation and transformation |
-| ML API | FastAPI + Uvicorn | Internal inference endpoint |
+| ML service | Python + FastAPI | Model inference endpoint |
+| ML | LightGBM + XGBoost + LogisticRegression | Supplied stacked ensemble |
+| ML preprocessing | pandas + scikit-learn | Feature validation/transformation |
 
 ## Repository structure
 
@@ -126,28 +246,17 @@ SpaceCoders/
 │
 ├── client/
 │   ├── public/
-│   ├── src/
-│   │   ├── components/
-│   │   │   ├── AlertCenter.jsx
-│   │   │   ├── Badge.jsx
-│   │   │   ├── Modal.jsx
-│   │   │   ├── Sidebar.jsx
-│   │   │   └── TopBar.jsx
-│   │   ├── pages/
-│   │   │   ├── Audit.jsx
-│   │   │   ├── Dashboard.jsx
-│   │   │   ├── Intake.jsx
-│   │   │   ├── Login.jsx
-│   │   │   ├── PatientDetail.jsx
-│   │   │   ├── Queue.jsx
-│   │   │   └── Signup.jsx
-│   │   ├── App.jsx
-│   │   ├── api.js
-│   │   ├── index.css
-│   │   ├── main.jsx
-│   │   ├── responsive.css
-│   │   └── socket.js
-│   └── vite.config.js
+│   └── src/
+│       ├── components/
+│       ├── pages/
+│       ├── utils/
+│       ├── App.jsx
+│       ├── api.js
+│       ├── main.jsx
+│       ├── socket.js
+│       ├── index.css
+│       ├── responsive.css
+│       └── portal-refinements.css
 │
 ├── server/
 │   └── src/
@@ -161,11 +270,13 @@ SpaceCoders/
 │       └── server.js
 │
 ├── ml/
-│   ├── train_xgboost.py
+│   ├── artifacts/
+│   │   └── triage_ensemble_model.pkl
 │   ├── inference_service.py
+│   ├── model_runner.py
+│   ├── verify_model_artifact.py
 │   ├── requirements.txt
 │   ├── requirements-inference.txt
-│   ├── README.md
 │   └── README_INFERENCE.md
 │
 ├── docs/
@@ -175,6 +286,7 @@ SpaceCoders/
 │   ├── TESTING.md
 │   ├── DEMO_SCRIPT.md
 │   ├── SECURITY.md
+│   ├── STYLE_GUIDE.md
 │   └── ROUND2_CHECKLIST.md
 │
 └── package.json
@@ -191,14 +303,14 @@ MongoDB         mongodb://127.0.0.1:27017/patienttriage
 
 ## Quick start
 
-### 1. Install JavaScript dependencies
+### 1. Install dependencies
 
 ```powershell
 npm install
 npm run install:all
 ```
 
-### 2. Create the backend environment file
+### 2. Configure backend
 
 ```powershell
 cd server
@@ -206,7 +318,7 @@ copy .env.example .env
 cd ..
 ```
 
-Recommended local values:
+Recommended development values:
 
 ```env
 PORT=3000
@@ -220,15 +332,17 @@ ML_INFERENCE_URL=http://127.0.0.1:8000
 
 ### 3. Start MongoDB
 
-Use the local MongoDB service on port `27017`.
+Start the local MongoDB service on port `27017`.
 
-### 4. Seed synthetic data
+### 4. Seed synthetic demo data
 
 ```powershell
 npm run seed
 ```
 
-The seed process recreates four demo users, eighteen synthetic patients, their initial triage records, queue state and audit events.
+The seed script recreates four demo users, eighteen synthetic patients and the related queue/assessment/audit state.
+
+> Running the seed script is a **reset** for the demo database. It clears existing seeded users, patients and audit events before recreating them.
 
 ### 5. Start the MERN application
 
@@ -236,14 +350,14 @@ The seed process recreates four demo users, eighteen synthetic patients, their i
 npm run dev
 ```
 
-The root development script starts both processes:
+Expected:
 
 ```text
 Frontend → http://localhost:5173
 Backend  → http://localhost:3000
 ```
 
-### 6. Enable model-backed inference
+### 6. Start the supplied model service
 
 Install Python dependencies:
 
@@ -252,10 +366,10 @@ python -m pip install -r ml/requirements.txt
 python -m pip install -r ml/requirements-inference.txt
 ```
 
-Train from the supplied dataset:
+Verify the model artifact:
 
 ```powershell
-python ml/train_xgboost.py --data train.csv
+python ml/verify_model_artifact.py
 ```
 
 Start FastAPI:
@@ -270,170 +384,157 @@ Health check:
 http://127.0.0.1:8000/health
 ```
 
-## Demo accounts
-
-All seeded demo accounts use `demo123`:
+The application uses the persisted supplied artifact at:
 
 ```text
-Charge nurse   charge@patienttriage.demo
-Triage nurse   nurse@patienttriage.demo
-Clinical admin admin@patienttriage.demo
-System admin   system@patienttriage.demo
+ml/artifacts/triage_ensemble_model.pkl
 ```
 
-Self-service signup is available at `/signup`. The backend assigns the default `triage_nurse` role rather than trusting a privilege level supplied by the browser.
+## Demo accounts
+
+All seeded demo accounts use the password `demo123`:
+
+```text
+Triage nurse    nurse@patienttriage.demo
+Charge nurse    charge@patienttriage.demo
+Clinical admin  admin@patienttriage.demo
+System admin    system@patienttriage.demo
+```
+
+Self-service signup is available at `/signup`. New signup requests receive the default `triage_nurse` role; the browser cannot self-assign elevated privileges.
 
 ## Dataset contract
 
-The reference `train.csv` contains 80,000 rows and 40 columns. The prediction target is `triage_acuity` with five classes: 1, 2, 3, 4 and 5.
+The supplied reference training set contains **80,000 rows and 40 columns**. The target is `triage_acuity` with five classes: 1, 2, 3, 4 and 5.
 
-Four fields are excluded from model input:
+The following fields are kept out of estimator input:
 
 | Field | Reason |
 |---|---|
 | `patient_id` | Identifier only |
 | `disposition` | Downstream outcome |
-| `ed_los_hours` | Downstream outcome and possible leakage |
+| `ed_los_hours` | Downstream outcome / leakage risk |
 | `triage_acuity` | Target label |
 
-The remaining 36 fields form the model input contract. The intake page mirrors those fields semantically and automatically derives values that can be calculated reliably from entered measurements.
+The remaining **36 fields** form the raw model-input vocabulary. The portal mirrors those fields semantically and derives the additional calculated values needed by the runtime feature contract.
 
-## Model behavior
+## Model / product boundaries
 
-The XGBoost model is trained as a five-class classifier wrapped in a scikit-learn preprocessing pipeline. Numeric values use median imputation; categorical values use most-frequent imputation with one-hot encoding that tolerates unknown categories.
-
-The recorded dataset-level evaluation from the reference training run was:
-
-| Metric | Result |
-|---|---:|
-| Accuracy | 85.26% |
-| Balanced accuracy | 86.72% |
-| Macro F1 | 86.95% |
-| Weighted F1 | 85.31% |
-
-These are prototype dataset metrics only. They are not evidence of clinical validity.
-
-## Safety architecture
-
-The model is not the only decision layer. The application also calculates independent safety signals and confidence.
+Keep these concepts separate in code and in the UI:
 
 ```text
-XGBoost prediction
-       +
-Independent red flags
-       +
-Data completeness / history / agreement
-       ↓
-Safety-aware recommendation
-       ↓
-Clinician decision
+Raw patient data
+      ↓
+Feature preparation
+      ↓
+Supplied ensemble prediction
+      ↓
+Safety / uncertainty layer
+      ↓
+Clinician review
+      ↓
+Final clinician decision
 ```
 
-A positive configured red flag can force immediate escalation. Missing or conflicting information can trigger an explicit abstain-and-escalate path. Model-service failure uses fail-open behavior and keeps manual triage possible.
+The application should never silently turn a fallback score into a successful model result, and it should never interpret the model recommendation as an autonomous clinical action.
 
-## Queue and alert behavior
+## Verification
 
-Waiting patients have queue position, final ESI, safe-max-wait and reassessment timestamps. The queue monitor periodically evaluates patients and can run on a tighter cadence during surge mode.
-
-Socket.IO events include:
+Use the project testing guide for the full regression flow:
 
 ```text
-system:health
-patient:created
-triage:completed
-escalation
-reassessment
-override
-queue:updated
+Authentication
+Patient intake
+Patient creation
+Model-backed prediction
+Confidence display
+Safety signals
+Accept / Override
+Reassess + history
+Queue + surge
+Alerts
+Service completion
+Past Patients
+Audit verification
+Responsive layouts
+Production build
 ```
 
-The alert center converts operational events into persistent in-app notifications, unread counts and critical toast messages.
+Run the core build checks with:
 
-## Audit chain
-
-The audit service links each event to the previous event with a SHA-256 hash. Stored fields include event ID, type, patient, actor, role, timestamp, payload, previous hash and current hash.
-
-The Audit Trail screen can verify the chain. When a mismatch is detected, the verification response identifies the first broken event.
-
-## Responsive design
-
-The UI is desktop-first but has dedicated responsive behavior:
-
-```text
-1440px+   Full navigation + dense dashboard
-1180px    Reduced grid density
-900px     Tablet navigation + stacked sections
-640px     Mobile navigation + single-column forms
-400px     Small-phone fallback layout
+```powershell
+npm run build
 ```
 
-Dense tables use local horizontal scrolling instead of creating page-wide overflow.
-
-## Verification and CI
-
-The repository includes a GitHub Actions workflow at `.github/workflows/ci.yml`. On pushes and pull requests to `main`, it validates the application at three levels:
-
-```text
-Node dependencies
-    ↓
-Backend test suite
-    ↓
-Frontend production build
-    ↓
-Python module syntax compilation
-```
-
-This CI job is a fast source-level gate. It does not start MongoDB or the local XGBoost service, so environment-dependent integration behavior still needs the checks in `docs/TESTING.md`.
+and follow `docs/TESTING.md` for the model and integration checks.
 
 ## Troubleshooting
 
-### Backend says port 3000 is already in use
+### Backend port 3000 is already in use
 
 ```powershell
 netstat -ano | findstr :3000
 taskkill /F /IM node.exe
 ```
 
-Restart after the old process is gone.
+Then restart the application.
 
 ### MongoDB is disconnected
 
-Verify the MongoDB service is running and that `MONGO_URI` matches the local instance.
+Verify MongoDB is running and `MONGO_URI` points to the expected database.
 
-### `patientCode_1` duplicate-key error
+### Duplicate patient-code index error
 
-The current database connection removes the obsolete index inherited from an older patient schema.
+If an older development database still contains the obsolete unique index, restart the backend so its database initialisation can remove the legacy index, or reset the local demo database with the seed script.
 
-### Application ID causes MongoDB ObjectId cast error
+### Patient application ID causes ObjectId cast error
 
-Patient routes recognize application IDs such as `PT-2026-LWSBKX` separately from MongoDB `_id` values.
+Routes recognise application IDs such as `PT-2026-LWSBKX` separately from MongoDB `_id` values.
 
-### XGBoost is unavailable
+### Model service is unavailable
 
-Confirm that the model artifact exists and FastAPI is running on port `8000`. The Node application falls back to its deterministic scorer if inference cannot be reached.
+Verify the artifact exists and FastAPI is healthy on port `8000`. The Node application follows the explicit fail-open path and records the fallback source.
 
-### Browser still shows an older frontend build
+### The browser shows an older UI build
 
-Restart Vite and hard-refresh the browser:
+Restart Vite and hard-refresh:
 
 ```text
 Ctrl + Shift + R
 ```
 
-## Documentation
+## Documentation map
 
-Read these documents in order when onboarding to the repository:
+Use these documents when preparing the submission or onboarding a teammate:
 
-1. `docs/SETUP.md` — get the system running.
-2. `docs/ARCHITECTURE.md` — understand the boundaries and data flow.
-3. `docs/API.md` — integrate with the REST/realtime contract.
-4. `ml/README.md` — understand training and evaluation.
-5. `ml/README_INFERENCE.md` — run the model service.
-6. `docs/TESTING.md` — verify the full workflow.
-7. `docs/DEMO_SCRIPT.md` — present the system.
-8. `docs/SECURITY.md` — review security and production gaps.
-9. `docs/ROUND2_CHECKLIST.md` — trace requirements to implementation.
+1. `docs/SETUP.md` - environment and startup instructions.
+2. `docs/ARCHITECTURE.md` - system boundaries and data flow.
+3. `docs/API.md` - REST and realtime contracts.
+4. `ml/README_INFERENCE.md` - supplied model service and artifact usage.
+5. `docs/TESTING.md` - end-to-end verification.
+6. `docs/DEMO_SCRIPT.md` - prototype demonstration flow.
+7. `docs/SECURITY.md` - security posture and production gaps.
+8. `docs/ROUND2_CHECKLIST.md` - requirement-to-feature mapping.
+9. `docs/STYLE_GUIDE.md` - coding and UI readability conventions.
 
 ## Limitations
 
-This repository is a hackathon-style prototype built for demonstration with synthetic data. The clinical thresholds are demonstration assumptions, not clinical guidance. The XGBoost metrics are dataset-level results and do not establish safety, calibration, fairness or efficacy. Production use would require clinical validation, formal governance, security and privacy review, monitoring, model version control, human-factors evaluation and regulatory assessment where applicable.
+This repository is a hackathon-style proof of concept built for demonstration with synthetic data. The model and safety thresholds are not clinically validated. Dataset-level model metrics do not establish clinical accuracy, calibration, fairness, safety, efficacy or regulatory compliance.
+
+A real deployment would require, at minimum, clinical validation, prospective evaluation, calibration and drift monitoring, subgroup analysis, security/privacy review, model governance, human-factors testing, operational integration and regulatory assessment where applicable.
+
+## Team
+
+**SpaceCoders**  
+Indian Institute of Technology Indore  
+B.Tech. Space Sciences and Engineering  
+Graduation: June 2028
+
+**Sakshya Singh Kasera**  
+**Patel Devki**
+
+## Live prototype
+
+**Website:** `patienttriage.ai`
+
+For evaluation, use the website together with this repository and the Round 2 pitch deck. The strongest demonstration path is the five-case walkthrough followed by the simulated surge and audit verification.
