@@ -532,9 +532,3 @@ Graduation: June 2028
 
 **Sakshya Singh Kasera**  
 **Patel Devki**
-
-## Live prototype
-
-**Website:** `patienttriage.ai`
-
-For evaluation, use the website together with this repository and the Round 2 pitch deck. The strongest demonstration path is the five-case walkthrough followed by the simulated surge and audit verification.
