@@ -172,26 +172,44 @@ system@patienttriage.demo
 
 ## 10. Start the MERN application
 
-In another terminal:
+The root package exposes separate commands for the two JavaScript services.
+
+### Run frontend and backend together
+
+Use this when you want both services from one terminal:
 
 ```powershell
 npm run dev
 ```
 
-The application uses:
+This starts:
 
 ```text
 Frontend  → http://localhost:5173
 Backend   → http://localhost:3000
 ```
 
-Open the frontend at:
+### Run the frontend only
 
-```text
-http://localhost:5173
+Use this when the backend is already running or when you want separate terminals:
+
+```powershell
+npm run client
 ```
 
+`npm run client` starts the React/Vite development server on port `5173`.
+
+### Run the backend only
+
+```powershell
+npm run server
+```
+
+`npm run server` starts the Node/Express API on port `3000`.
+
 ## 11. Recommended startup order
+
+For demos and easier troubleshooting, use separate terminals.
 
 ### Terminal 1 — MongoDB
 
@@ -204,14 +222,33 @@ cd S:\Accenture_Hackathon\SpaceCoders
 uvicorn ml.inference_service:app --host 127.0.0.1 --port 8000
 ```
 
-### Terminal 3 — React + Node application
+### Terminal 3 — backend
 
 ```powershell
 cd S:\Accenture_Hackathon\SpaceCoders
-npm run dev
+npm run server
 ```
 
-Keeping the three processes visible in separate terminals makes troubleshooting much easier during a demo.
+Expected:
+
+```text
+PatientTriage API listening on 3000
+```
+
+### Terminal 4 — frontend
+
+```powershell
+cd S:\Accenture_Hackathon\SpaceCoders
+npm run client
+```
+
+Expected:
+
+```text
+Local: http://localhost:5173/
+```
+
+Keeping the frontend, backend and model logs in separate terminals makes it much easier to identify which service is having a problem during a demonstration.
 
 ## 12. End-to-end model-backed flow
 
@@ -274,7 +311,11 @@ Only run one backend instance.
 
 ### Port 5173 is already in use
 
-Stop the existing Vite process or close the development terminal running it before restarting.
+Stop the existing Vite process or close the terminal running the frontend, then run:
+
+```powershell
+npm run client
+```
 
 ### MongoDB connection fails
 
@@ -312,7 +353,13 @@ The Node workflow has an explicit fail-open fallback for the prototype. Patient 
 
 ### Browser appears stuck on old UI
 
-Restart Vite and hard-refresh:
+Restart the frontend with:
+
+```powershell
+npm run client
+```
+
+Then hard-refresh:
 
 ```text
 Ctrl + Shift + R
