@@ -7,6 +7,14 @@ import { useEffect, useRef } from 'react';
  */
 export default function Modal({ open, title, onClose, children }) {
   const dialogRef = useRef(null);
+  const onCloseRef = useRef(onClose);
+
+  // Keep the latest close callback without making the focus effect rerun on
+  // every parent render. Some callers pass an inline callback, and rerunning
+  // the effect was stealing focus from text fields after every keystroke.
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   useEffect(() => {
     if (!open) {
@@ -18,7 +26,7 @@ export default function Modal({ open, title, onClose, children }) {
 
     const handleKeyDown = event => {
       if (event.key === 'Escape') {
-        onClose();
+        onCloseRef.current?.();
       }
     };
 
@@ -28,7 +36,7 @@ export default function Modal({ open, title, onClose, children }) {
       document.removeEventListener('keydown', handleKeyDown);
       previousFocus?.focus?.();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) {
     return null;
